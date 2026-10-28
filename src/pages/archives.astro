@@ -1,0 +1,16 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro'
+import BlogIndexLayout from '~/layouts/BlogIndexLayout.astro'
+import ArchiveView from '~/components/views/ArchiveView.astro'
+---
+
+<BaseLayout
+  title="归档"
+  description="按年份浏览赵博洋的工作随笔与项目记录"
+  bgType="dot"
+>
+  <BlogIndexLayout>
+    <h1 class="sr-only">归档</h1>
+    <ArchiveView />
+  </BlogIndexLayout>
+</BaseLayout>

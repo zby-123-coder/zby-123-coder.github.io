@@ -1,0 +1,175 @@
+---
+import RandomBrowse from '~/components/blog/RandomBrowse.astro'
+import {
+  getPublishedBlogPosts,
+  getRecentBlogPosts,
+  getSortedPosts,
+} from '~/utils/data'
+import type { PostNavItem } from '~/utils/post-nav'
+import { formatRecentPostDate } from '~/utils/recent-post-date.js'
+import { withBasePath } from '~/utils/path'
+
+const posts = await getRecentBlogPosts()
+const randomCandidates: PostNavItem[] = getSortedPosts(
+  await getPublishedBlogPosts()
+).map((post) => ({
+  id: post.id,
+  title: post.data.title,
+  href: post.data.redirect || withBasePath(`/blogs/${post.id}/`),
+}))
+---
+
+<section class="recent-writing" aria-labelledby="recent-writing-title">
+  <header class="home-section-header">
+    <h2 id="recent-writing-title">近期笔墨</h2>
+    <div class="home-section-header__aside">
+      <RandomBrowse
+        candidates={randomCandidates}
+        compact
+        landmark={false}
+        class="recent-writing__random"
+      />
+      <a href={withBasePath('/blogs/')}>全部文稿</a>
+    </div>
+  </header>
+  {posts.length ? (
+    <ol class="recent-writing__timeline">
+      {posts.map(({ id, data }, index) => {
+        const dateTime = data.pubDate.toISOString()
+        return (
+          <li class="recent-writing__item">
+            <span class="recent-writing__number" aria-hidden="true">
+              {String(index + 1).padStart(2, '0')}
+            </span>
+            <div class="recent-writing__content">
+              <a
+                class="recent-writing__link"
+                href={data.redirect || withBasePath(`/blogs/${id}/`)}
+              >
+                {data.title}
+              </a>
+              <p class="recent-writing__category">文稿 · {data.category}</p>
+            </div>
+            <time
+              class="recent-writing__date"
+              datetime={dateTime}
+              data-recent-post-date={dateTime}
+            >
+              {formatRecentPostDate(data.pubDate)}
+            </time>
+          </li>
+        )
+      })}
+    </ol>
+  ) : (
+    <p>还没有发布文稿。</p>
+  )}
+</section>
+
+<style>
+  .recent-writing {
+    margin-top: 3rem;
+  }
+  .recent-writing__timeline {
+    position: relative;
+    margin: 1.5rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .recent-writing__timeline::before {
+    position: absolute;
+    top: 0;
+    bottom: 0.25rem;
+    left: 1rem;
+    width: 1px;
+    background: linear-gradient(
+      var(--accent),
+      color-mix(in srgb, var(--c-text) 15%, transparent)
+    );
+    content: '';
+  }
+  .recent-writing__item {
+    position: relative;
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr) auto;
+    gap: 0.25rem 1rem;
+    align-items: baseline;
+    padding-bottom: 1.4rem;
+  }
+  .recent-writing__item:last-child {
+    padding-bottom: 0;
+  }
+  .recent-writing__number {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    background: var(--c-bg);
+    font-size: 0.75rem;
+    color: color-mix(in srgb, var(--c-text) 65%, var(--c-bg));
+    font-family: var(--font-heading);
+    font-variant-numeric: tabular-nums;
+  }
+  .recent-writing__item:first-child .recent-writing__number {
+    color: var(--accent);
+  }
+  .recent-writing__content {
+    min-width: 0;
+  }
+  .recent-writing__link {
+    color: inherit;
+    font-family: var(--font-heading);
+    font-size: 1rem;
+    line-height: 1.65;
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition:
+      color 160ms ease,
+      border-color 160ms ease;
+    overflow-wrap: anywhere;
+  }
+  .recent-writing__link:hover,
+  .recent-writing__link:focus-visible {
+    color: var(--accent);
+    border-bottom-color: currentColor;
+  }
+  .recent-writing__item:first-child .recent-writing__link {
+    font-size: 1.0625rem;
+    line-height: 1.6;
+  }
+  .recent-writing__category {
+    margin: 0.5rem 0 0;
+    color: color-mix(in srgb, var(--c-text) 50%, var(--c-bg));
+    font-size: 0.75rem;
+  }
+  .recent-writing__date {
+    color: color-mix(in srgb, var(--c-text) 55%, var(--c-bg));
+    font-family: 'SourceHanSerifCN-Regular', serif;
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  @media (max-width: 640px) {
+    .recent-writing__item {
+      grid-template-columns: 2rem minmax(0, 1fr);
+      column-gap: 0.75rem;
+    }
+    .recent-writing__date {
+      grid-column: 2;
+      margin-top: 0.25rem;
+    }
+  }
+</style>
+
+<script>
+  import { formatRecentPostDate } from '~/utils/recent-post-date.js'
+  const updateRecentWritingDates = () => {
+    document
+      .querySelectorAll<HTMLElement>('[data-recent-post-date]')
+      .forEach((element) => {
+        const publishedAt = element.dataset.recentPostDate
+        if (publishedAt) element.textContent = formatRecentPostDate(publishedAt)
+      })
+  }
+  updateRecentWritingDates()
+  document.addEventListener('astro:page-load', updateRecentWritingDates)
+</script>

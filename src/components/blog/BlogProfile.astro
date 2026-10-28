@@ -1,0 +1,58 @@
+---
+import { withBasePath } from '~/utils/path'
+import { AUTHOR_LINKS, SITE } from '~/config'
+---
+
+<section class="blog-profile" aria-labelledby="blog-profile-name">
+  <div class="blog-profile__top">
+    <a class="blog-profile__identity" href={withBasePath('/about/')}>
+      <div class="blog-profile__heading">
+        <h2 id="blog-profile-name">{SITE.author}</h2>
+        <span class="blog-profile__mbti">AI PRODUCT · AGENT SYSTEMS</span>
+      </div>
+      <span class="blog-profile__avatar" aria-hidden="true">
+        <span class="blog-profile__monogram">赵</span>
+      </span>
+    </a>
+    <a class="blog-profile__rss" href={withBasePath('/rss.xml')}>
+      <span>订阅 RSS</span>
+      <span
+        class="blog-profile__arrow i-ri-arrow-right-up-line"
+        aria-hidden="true"
+      ></span>
+    </a>
+  </div>
+  <div class="blog-profile__details">
+    <nav class="blog-profile__social" aria-label="联系与社交媒体">
+      {AUTHOR_LINKS.map(({ label, href, icon }) => (
+        <a
+          {href}
+          title={label}
+          rel={href.startsWith('mailto:') ? undefined : 'me'}
+        >
+          <span
+            class:list={['blog-profile__social-icon', icon]}
+            aria-hidden="true"
+          />
+          <span class="sr-only">{label}</span>
+        </a>
+      ))}
+    </nav>
+    <p class="blog-profile__motto">
+      「用户递来的方案，常常不是他的需求；我与我缠斗，终归是我。」
+    </p>
+  </div>
+</section>
+
+<style>
+  .blog-profile__monogram {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    place-items: center;
+    background: var(--c-text);
+    color: var(--c-bg);
+    font-family: var(--font-heading);
+    font-size: 1.3rem;
+  }
+</style>

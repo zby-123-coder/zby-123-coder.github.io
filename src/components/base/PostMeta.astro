@@ -1,0 +1,75 @@
+---
+import { formatDate } from '~/utils/datetime'
+import { tagSelectionLinks } from '~/utils/blog-browser.js'
+import { UI } from '~/config'
+import TagLinks from '~/components/base/TagLinks.astro'
+
+interface Props {
+  pubDate: string
+  lastModDate: string | undefined
+  minutesRead: number
+  tags: string[]
+  hasSubtitle: boolean
+}
+
+const { pubDate, lastModDate, minutesRead, tags, hasSubtitle } = Astro.props
+
+const visibleTags = tagSelectionLinks(tags)
+const isMinimal = UI.postView.postMetaStyle === 'minimal'
+const showLastModDate =
+  !!lastModDate && formatDate(lastModDate) !== formatDate(pubDate)
+---
+
+{isMinimal ? (
+  <div
+    class:list={[
+      'post-meta op-50 lt-md:text-sm',
+      hasSubtitle && 'post-meta--with-subtitle',
+    ]}
+  >
+    <time datetime={pubDate}>{formatDate(pubDate)}</time>
+    {showLastModDate && (
+      <time datetime={lastModDate}> · Updated {formatDate(lastModDate)}</time>
+    )}
+    {minutesRead > 0 && <span> · {minutesRead} min</span>}
+    {visibleTags.length > 0 && (
+      <span>
+        {' · '}
+        <TagLinks {tags} />
+      </span>
+    )}
+  </div>
+) : (
+  <div
+    class:list={[
+      'post-meta flex justify-start items-center gap-x-4 gap-y-1 flex-wrap lt-md:text-sm op-50',
+      hasSubtitle && 'post-meta--with-subtitle',
+    ]}
+  >
+    <div>
+      <span class="i-ri-calendar-line mr-1.2" />
+      <time datetime={pubDate}>{formatDate(pubDate)}</time>
+    </div>
+    {showLastModDate && (
+      <div>
+        <span class="i-ri-history-fill mr-1.2" />
+        <time datetime={lastModDate}>{formatDate(lastModDate)}</time>
+      </div>
+    )}
+    <div>
+      <span class="i-ri-timer-line mr-1.2 ml--0.6" />
+      {minutesRead > 0 && <span>{minutesRead} min read</span>}
+    </div>
+    {visibleTags.length > 0 && (
+      <div>
+        <TagLinks {tags} />
+      </div>
+    )}
+  </div>
+)}
+
+<style>
+  .post-meta time {
+    color: var(--accent);
+  }
+</style>

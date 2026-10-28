@@ -1,0 +1,117 @@
+---
+import { render } from 'astro:content'
+import { getImage } from 'astro:assets'
+
+import BaseLayout from '~/layouts/BaseLayout.astro'
+import StandardLayout from '~/layouts/StandardLayout.astro'
+import PostMeta from '~/components/base/PostMeta.astro'
+import GiscusComments from '~/components/base/GiscusComments.astro'
+import PostNav from '~/components/blog/PostNav.astro'
+import PostHero from '~/components/base/PostHero.astro'
+import Warning from '~/components/base/Warning.astro'
+import Toc from '~/components/toc/Toc.astro'
+
+import { getMinutesRead } from '~/utils/data'
+import { COMMENTS_ENABLED, FEATURES } from '~/config'
+
+import type { CollectionEntry } from 'astro:content'
+
+interface Props {
+  post: CollectionEntry<'blogs'>
+}
+
+const { post } = Astro.props
+const { search } = FEATURES
+
+const { data: frontmatter } = post
+const { Content, headings, remarkPluginFrontmatter } = await render(post)
+
+const title = frontmatter.title
+const description = frontmatter.description
+const pubDate = frontmatter.pubDate.toISOString()
+const lastModDate =
+  frontmatter.lastModDate && frontmatter.lastModDate.toISOString()
+const subtitle = frontmatter.subtitle
+const minutesRead = getMinutesRead(
+  frontmatter.minutesRead,
+  remarkPluginFrontmatter.minutesRead as number
+)
+const tags = frontmatter.tags
+const isDraft = frontmatter.draft
+
+const titleImage = frontmatter.titleImage
+const titleImageAlt = frontmatter.titleImageAlt
+
+// 社交分享图需要绝对 URL，并且不能直接拿封面原图（可能是 4K）。
+// 单独生成一张 1200px 宽的 JPEG，兼容各平台。
+const socialImage = titleImage
+  ? (
+      await getImage({
+        src: titleImage,
+        width: 1200,
+        format: 'jpeg',
+        quality: 'high',
+      })
+    ).src
+  : undefined
+
+const collectionType = post.collection
+const isSearchable =
+  Array.isArray(search) &&
+  search[0] &&
+  search[1].includes.includes(collectionType) &&
+  frontmatter.search
+const searchFilter =
+  isSearchable && search[1].filter ? `collection:${collectionType}` : undefined
+
+const WARNING = `This is a draft post that will not be published
+in production. Set the post's <code>draft</code> property in
+frontmatter to <code>false</code> or remove it to publish the post.`
+---
+
+<BaseLayout
+  {title}
+  {description}
+  {pubDate}
+  {lastModDate}
+  {socialImage}
+  socialImageAlt={titleImageAlt}
+>
+  <StandardLayout
+    {title}
+    {subtitle}
+    isArticle
+    hasHeroImage={!!titleImage}
+    {isSearchable}
+    {searchFilter}
+  >
+    <Fragment slot="head">
+      <PostMeta
+        {pubDate}
+        {lastModDate}
+        {minutesRead}
+        {tags}
+        hasSubtitle={!titleImage && !!subtitle}
+      />
+      {isDraft && <Warning html={WARNING} />}
+    </Fragment>
+    {titleImage && (
+      <Fragment slot="hero">
+        <PostHero
+          {title}
+          description={description || subtitle}
+          {titleImage}
+          {titleImageAlt}
+        />
+      </Fragment>
+    )}
+    <Fragment slot="article">
+      <Toc {headings} enabled={frontmatter.toc} />
+      <Content />
+    </Fragment>
+  </StandardLayout>
+  <Fragment slot="after-content">
+    <PostNav currentId={post.id} />
+    {COMMENTS_ENABLED && <GiscusComments />}
+  </Fragment>
+</BaseLayout>

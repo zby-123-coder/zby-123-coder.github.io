@@ -1,0 +1,76 @@
+---
+---
+
+<div class="progress-stats" role="group" aria-label="时间进度">
+  <div class="progress-stat progress-stat--day">
+    <div>
+      <strong data-progress-value="day">--</strong>
+      <span>今年第几天</span>
+    </div>
+    <span class="progress-stat__bar" data-progress-bar="year"></span>
+  </div>
+  <div class="progress-stat">
+    <div>
+      <strong>
+        <span data-progress-value="year">--</span>%
+      </strong>
+      <span>年度</span>
+    </div>
+    <span class="progress-stat__bar" data-progress-bar="year"></span>
+  </div>
+  <div class="progress-stat">
+    <div>
+      <strong>
+        <span data-progress-value="today">--</span>%
+      </strong>
+      <span>今日</span>
+    </div>
+    <span class="progress-stat__bar" data-progress-bar="day"></span>
+  </div>
+</div>
+
+<script>
+  import { getProgressStats } from '~/utils/progress-stats.js'
+
+  const updateProgressStats = () => {
+    const stats = getProgressStats()
+    const values = {
+      day: String(stats.dayOfYear),
+      year: String(Math.round(stats.yearProgress)),
+      today: String(Math.round(stats.dayProgress)),
+    }
+    const bars = {
+      year: `${stats.yearProgress}%`,
+      day: `${stats.dayProgress}%`,
+    }
+
+    document
+      .querySelectorAll<HTMLElement>('[data-progress-value]')
+      .forEach((element) => {
+        const key = element.dataset.progressValue as keyof typeof values
+        if (key in values) element.textContent = values[key]
+      })
+    document
+      .querySelectorAll<HTMLElement>('[data-progress-bar]')
+      .forEach((element) => {
+        const key = element.dataset.progressBar as keyof typeof bars
+        if (key in bars) element.style.setProperty('--progress', bars[key])
+      })
+  }
+
+  let clock: number | undefined
+
+  const startProgressClock = () => {
+    updateProgressStats()
+    if (clock !== undefined) window.clearInterval(clock)
+    if (document.querySelector('[data-progress-value]'))
+      clock = window.setInterval(updateProgressStats, 30_000)
+  }
+
+  document.addEventListener('astro:before-swap', () => {
+    window.clearInterval(clock)
+    clock = undefined
+  })
+  document.addEventListener('astro:page-load', startProgressClock)
+  startProgressClock()
+</script>

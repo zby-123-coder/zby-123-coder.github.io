@@ -1,0 +1,172 @@
+---
+import Head from '~/components/base/Head.astro'
+import Background from '~/components/backgrounds/Background.astro'
+import Link from '~/components/base/Link.astro'
+import NavBar from '~/components/nav/NavBar.astro'
+import Footer from '~/components/base/Footer.astro'
+import ToTopButton from '~/components/widgets/ToTopButton.astro'
+import Backdrop from '~/components/base/Backdrop.astro'
+import ImageInteractions from '~/components/widgets/ImageInteractions.astro'
+import CardScrollbars from '~/components/widgets/CardScrollbars.astro'
+import CardRailMarquee from '~/components/widgets/CardRailMarquee.astro'
+import ExcalidrawViewer from '~/components/widgets/ExcalidrawViewer.astro'
+
+import { SITE, UI, FEATURES } from '~/config'
+
+import type { BgType } from '~/types'
+
+interface Props {
+  title?: string
+  description?: string
+  bgType?: BgType | false
+  pubDate?: string
+  lastModDate?: string
+  socialImage?: string
+  socialImageAlt?: string
+}
+
+const {
+  title,
+  description,
+  bgType,
+  pubDate,
+  lastModDate,
+  socialImage,
+  socialImageAlt,
+} = Astro.props
+let style: Record<string, string> = {}
+
+const { slideEnterAnim } = FEATURES
+const enableSlideEnterAnim = Array.isArray(slideEnterAnim) && slideEnterAnim[0]
+if (enableSlideEnterAnim)
+  style['--enter-step'] = `${slideEnterAnim[1].enterStep}ms`
+
+const {
+  externalLink: { newTab, cursorType },
+} = UI
+const hasCustomCursor =
+  newTab && cursorType.length > 0 && cursorType !== 'pointer'
+if (hasCustomCursor) style['--external-link-cursor'] = cursorType
+---
+
+<!doctype html>
+<html lang={SITE.lang}>
+  <head>
+    <Head
+      {title}
+      {description}
+      {pubDate}
+      {lastModDate}
+      {socialImage}
+      {socialImageAlt}
+    />
+  </head>
+
+  <body
+    class="relative flex flex-col min-h-screen
+      font-sans text-gray-700 dark:text-gray-200"
+    style={Object.keys(style).length !== 0 ? style : undefined}
+    data-no-sliding={enableSlideEnterAnim ? undefined : ''}
+  >
+    <!-- Background -->
+    {bgType && <Background type={bgType} />}
+
+    <!-- Skip Link -->
+    <Link
+      href="#main"
+      class="sr-only focus:(not-sr-only fixed start-1 top-1.5 op-20)"
+    >
+      Skip to content
+    </Link>
+
+    <!-- Nav Bar -->
+    <NavBar />
+
+    <!-- Main -->
+    <main id="main" class="site-main pb-10">
+      <!-- Content -->
+      <slot />
+      <slot name="after-content" />
+    </main>
+
+    <!-- Footer -->
+    <Footer />
+    <ToTopButton />
+
+    <!-- Panel Backdrop (on mobile) -->
+    <Backdrop />
+    <ImageInteractions />
+    <CardScrollbars />
+    <CardRailMarquee />
+    <ExcalidrawViewer />
+
+    <!-- Pointer focus stays functional without drawing keyboard focus rings. -->
+    <script>
+      document.addEventListener(
+        'pointerdown',
+        () => {
+          document.documentElement.dataset.inputMethod = 'pointer'
+        },
+        { capture: true }
+      )
+      document.addEventListener(
+        'keydown',
+        (event) => {
+          if (
+            !event.metaKey &&
+            !event.ctrlKey &&
+            !event.altKey &&
+            !['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)
+          )
+            delete document.documentElement.dataset.inputMethod
+        },
+        { capture: true }
+      )
+      document.addEventListener('astro:before-swap', (event) => {
+        if (document.documentElement.dataset.inputMethod === 'pointer')
+          event.newDocument.documentElement.dataset.inputMethod = 'pointer'
+      })
+    </script>
+    <!-- Progress Bar -->
+    <script>
+      const PROGRESS_ID = 'page-progress-bar'
+
+      const getProgressBar = () => {
+        const existingBar = document.getElementById(PROGRESS_ID)
+        if (existingBar) return existingBar
+
+        const bar = document.createElement('div')
+        bar.id = PROGRESS_ID
+        bar.setAttribute('aria-hidden', 'true')
+        document.body.append(bar)
+        return bar
+      }
+
+      let hideTimer: number | undefined
+      let shownAt = 0
+      const minVisibleMs = 480
+
+      const setProgressState = (loading: boolean) => {
+        const bar = getProgressBar()
+        window.clearTimeout(hideTimer)
+        if (loading) {
+          shownAt = Date.now()
+          bar.dataset.loading = 'true'
+          return
+        }
+        const wait = Math.max(0, minVisibleMs - (Date.now() - shownAt))
+        hideTimer = window.setTimeout(() => {
+          bar.dataset.loading = 'false'
+        }, wait)
+      }
+
+      document.addEventListener('astro:before-preparation', () => {
+        setProgressState(true)
+      })
+
+      document.addEventListener('astro:page-load', () => {
+        setProgressState(false)
+      })
+    </script>
+  </body>
+</html>

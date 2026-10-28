@@ -1,0 +1,26 @@
+---
+title: 项目
+description: AI 产品、Agent 系统与可被继续追问的项目档案。
+bgType: rose
+---
+
+import BaseLayout from '~/layouts/BaseLayout.astro'
+import BlogIndexLayout from '~/layouts/BlogIndexLayout.astro'
+import GroupView from '~/components/views/GroupView.astro'
+import PageHeading from '~/components/base/PageHeading.astro'
+
+<BaseLayout
+  title={frontmatter.title}
+  description={frontmatter.description}
+  bgType={frontmatter.bgType}
+>
+  <BlogIndexLayout>
+    <div class="overview-header">
+      <PageHeading
+        title={frontmatter.title}
+        subtitle="把复杂能力做成可理解、可控制、可回看的系统。"
+      />
+    </div>
+    <GroupView collectionType="projects" />
+  </BlogIndexLayout>
+</BaseLayout>

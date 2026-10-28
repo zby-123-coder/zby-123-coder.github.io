@@ -1,0 +1,112 @@
+---
+import { FEATURES, SITE } from '~/config'
+import { withBasePath } from '~/utils/path'
+
+const currentYear = new Date().getFullYear()
+const oneko = FEATURES.oneko
+const onekoEnabled = Array.isArray(oneko) && oneko[0]
+---
+
+<footer class="slide-enter animate-delay-1600! mt-auto mb-8">
+  <div class="prose mx-auto">
+    <div class="flex flex-wrap gap-y-1 lt-sm:flex-col items-center text-sm whitespace-nowrap">
+      <span>
+        <span class="op-50">© {currentYear}</span>{' '}
+        <a class="footer-link" href={withBasePath('/')}>
+          {SITE.author}
+        </a>
+      </span>
+      <span class="footer-mark lt-sm:hidden" aria-hidden="true">
+        ·
+      </span>
+      <span>
+        <span class="op-50">Built with</span>{' '}
+        <a class="footer-link" href="https://astro.build">
+          Astro
+        </a>
+      </span>
+      <span class="footer-mark lt-sm:hidden" aria-hidden="true">
+        ·
+      </span>
+      <span>
+        <span class="op-50">Base</span>{' '}
+        <a
+          class="footer-link"
+          href="https://github.com/wutongyuonce/YuBlog"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          YuBlog · MIT
+        </a>
+      </span>
+      {onekoEnabled && (
+        <>
+          <span class="footer-mark lt-sm:hidden" aria-hidden="true">
+            ·
+          </span>
+          <button type="button" class="footer-oneko-toggle" data-oneko-toggle>
+            <span aria-hidden="true">🐾</span> 隐藏小猫
+          </button>
+        </>
+      )}
+    </div>
+  </div>
+</footer>
+
+<style>
+  footer {
+    /* Share the shell gutter: the footer is chrome, not a second column. */
+    padding-inline: var(--site-gutter);
+    font-family: var(--font-heading);
+    font-weight: 400;
+    font-synthesis: none;
+  }
+
+  .footer-link {
+    border-bottom: 1px solid color-mix(in srgb, var(--fg) 35%, transparent);
+    color: color-mix(in srgb, var(--fg) 72%, transparent);
+    text-decoration: none;
+    transition:
+      border-color 0.3s ease-in-out,
+      color 0.3s ease-in-out;
+  }
+
+  .footer-link:hover,
+  .footer-link:focus-visible {
+    border-bottom-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .footer-oneko-toggle {
+    appearance: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--fg) 35%, transparent);
+    background: transparent;
+    color: color-mix(in srgb, var(--fg) 72%, transparent);
+    font: inherit;
+    cursor: pointer;
+    transition:
+      border-color 0.3s ease-in-out,
+      color 0.3s ease-in-out;
+  }
+
+  .footer-oneko-toggle:hover,
+  .footer-oneko-toggle:focus-visible {
+    border-bottom-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .footer-oneko-toggle[aria-pressed='true'] {
+    color: color-mix(in srgb, var(--fg) 55%, transparent);
+  }
+
+  .footer-mark {
+    flex: none;
+    margin-inline: 0.45rem;
+    color: color-mix(in srgb, var(--fg) 55%, transparent);
+    font-size: 1.15em;
+    line-height: 1;
+  }
+</style>

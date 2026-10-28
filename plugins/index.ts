@@ -1,0 +1,256 @@
+import { visit } from 'unist-util-visit' // 遍历 AST 树节点的工具函数
+
+// ==================== Remark 插件（Markdown → MDAST） ====================
+import remarkCjkFriendly from 'remark-cjk-friendly' // CJK 标点旁的 **加粗**（Typora 能渲染，CommonMark 默认不能）
+import remarkDirective from 'remark-directive' // 支持通用指令语法（::name, :name）
+import remarkDirectiveSugar from 'remark-directive-sugar' // 提供 :badge、:link、:image 等内置指令
+import remarkImageWidth from './remark-image-width' // 正文图片宽度标记（|w353）
+import remarkMediaCard from './remark-media-card' // :::card 封面卡片
+import remarkExcalidraw from './remark-excalidraw' // :::excalidraw 图
+import remarkBlogLink from './remark-blog-link' // :::blog-link 博文卡
+import remarkImageLayouts, { rehypeImageSources } from './remark-image-layouts' // 相册、绕图与放大图源
+import remarkMath from 'remark-math' // 解析数学公式（$...$ 和 $$...$$）
+import remarkReadingTime from './remark-reading-time' // 计算文章阅读时间（自定义）
+
+// ==================== Rehype 插件（MDAST → HTML） ====================
+import { rehypeHeadingIds } from '@astrojs/markdown-remark' // 为标题自动添加 ID
+import rehypeRaw from 'rehype-raw' // 把原生 HTML 解析成真元素，让后续 rehype 插件看得见
+import rehypeCodeMeta from './rehype-code-meta' // raw 重建前保留代码围栏属性
+import rehypeCallouts from 'rehype-callouts' // 创建提示框/标注（注、警告等）
+import rehypeKatex from 'rehype-katex' // 渲染数学公式（LaTeX → HTML）
+import rehypeExternalLinks from 'rehype-external-links' // 处理外部链接（新窗口、图标等）
+import rehypeAutolinkHeadings from 'rehype-autolink-headings' // 标题自动添加锚点链接
+import rehypeWrapAll from './rehype-wrap-all' // 用 div 包裹指定元素
+import rehypeMediaAssets from './rehype-media-assets' // 正文媒体引用改写与校验
+
+import { UI } from '../src/config' // 导入项目配置
+
+import type { RemarkPlugins, RehypePlugins } from 'astro'
+import type { PropertiesFromTextDirective } from 'remark-directive-sugar'
+import type { Text } from 'mdast'
+import type { Element as HastElement, Properties as HastProperties } from 'hast'
+import type { BuildProperties } from 'rehype-autolink-headings'
+import type { CreateContent, CreateProperties } from 'rehype-external-links'
+
+const linkImgProps: PropertiesFromTextDirective = (node) => {
+  const props: HastProperties = { 'aria-hidden': 'true' }
+
+  if (node.attributes?.class?.includes('github'))
+    props.src = 'https://github.githubassets.com/favicons/favicon.svg'
+
+  return props
+}
+
+const externalLinkContent: CreateContent = (el) => {
+  // 如果没开启新标签页或不需要图标，返回 null
+  if (!UI.externalLink.newTab || !UI.externalLink.showNewTabIcon) return null
+
+  // 检测链接内是否包含图片（避免影响图片链接）
+  let hasImage = false
+  visit(el, 'element', (childNode: HastElement) => {
+    if (childNode.tagName === 'img') {
+      hasImage = true
+      return false
+    }
+  })
+  if (hasImage) return null
+
+  // 返回空文本（实际图标由 CSS 类生成）
+  return { type: 'text', value: '' }
+}
+
+const externalLinkContentProperties: CreateProperties = (el) => {
+  if (!UI.externalLink.newTab || !UI.externalLink.showNewTabIcon) return null
+
+  let hasImage = false
+  visit(el, 'element', (childNode: HastElement) => {
+    if (childNode.tagName === 'img') {
+      hasImage = true
+      return false
+    }
+  })
+  if (hasImage) return null
+
+  return {
+    'u-i-carbon-arrow-up-right': true, // 使用 Carbon 图标集
+    'className': ['new-tab-icon'], // 添加 CSS 类
+    'aria-hidden': 'true', // 对屏幕阅读器隐藏
+  }
+}
+
+const externalLinkProperties: CreateProperties = (el) => {
+  const props: HastProperties = {}
+  const href = el.properties.href
+
+  if (!href || typeof href !== 'string') return props
+
+  if (UI.externalLink.newTab) {
+    props.target = '_blank' // 新标签页打开
+    props.ariaLabel = 'Open in new tab' // 无障碍标签
+
+    // 自定义鼠标样式
+    if (
+      UI.externalLink.cursorType.length > 0 &&
+      UI.externalLink.cursorType !== 'pointer'
+    ) {
+      props.className = Array.isArray(el.properties.className)
+        ? [...el.properties.className, 'external-link-cursor']
+        : ['external-link-cursor']
+    }
+  }
+
+  return props
+}
+
+const headingAnchorProperties: BuildProperties = (el) => {
+  // 提取标题文本内容（用于 aria-label）
+  let content = ''
+  visit(el, 'text', (textNode: Text) => {
+    content += textNode.value
+  })
+
+  return {
+    'className': ['header-anchor'],
+    'tabIndex': 0, // 可用键盘导航
+    'aria-hidden': 'false', // 对屏幕阅读器可见
+    'aria-label': content ? `Link to ${content}` : undefined,
+    'data-pagefind-ignore': '', // 排除搜索索引
+  }
+}
+
+// ==================== 导出 Remark 插件配置 ====================
+export const remarkPlugins: RemarkPlugins = [
+  // 0. CJK 友好的强调语法（**术语（中文）**后接汉字）
+  remarkCjkFriendly,
+
+  // 1. 基础指令支持
+  remarkDirective, // 解析 :::warning 这类自定义指令
+
+  // 2. 指令糖插件（提供开箱即用的指令）
+  [
+    remarkDirectiveSugar,
+    {
+      // 2.1 徽章指令
+      badge: {
+        presets: {
+          n: { text: 'NEW' }, // :badge[n] → 显示 NEW
+          a: { text: 'ARTICLE' }, // :badge[a] → 显示 ARTICLE
+          v: { text: 'VIDEO' }, // :badge[v] → 显示 VIDEO
+        },
+      },
+      // 2.2 链接指令（自动添加网站图标）
+      link: {
+        // 从 Google 服务获取网站 favicon
+        faviconSourceUrl: 'https://icons.duckduckgo.com/ip3/{domain}.ico',
+        // 动态设置图片属性
+        imgProps: linkImgProps,
+      },
+      // 2.3 B 站视频统一关闭自动播放
+      video: {
+        platforms: {
+          bilibili:
+            'https://player.bilibili.com/player.html?bvid={id}&autoplay=0',
+        },
+      },
+      // 2.4 图片指令
+      image: {
+        stripParagraph: false, // 保留图片周围的 <p> 标签
+      },
+    },
+  ],
+
+  // 3. 数学公式支持
+  remarkMath, // 解析 $inline$ 和 $$block$$ 语法
+
+  // 4. 阅读时间计算
+  remarkReadingTime, // 统计文章字数，计算预计阅读时间
+
+  // 5. 正文图片宽度标记（在图片被图片管线接管前剥离标记）
+  remarkImageWidth,
+
+  // 6. 封面卡片。必须在指令解析和图片宽度标记之后，封面图片才能继续进图片管线。
+  remarkMediaCard,
+
+  // 7. Excalidraw：预览图仍是图片节点，须在 image-layouts 包装之前产出。
+  remarkExcalidraw,
+
+  // 8. 博文链接卡片（构建期解析 slug）。
+  remarkBlogLink,
+
+  // 9. 布局必须保留图片节点；放大图源与缩略图一起交给 Astro 解析。
+  //    会跳过 excalidraw-embed / blog-link-card 内部，避免与 pan-zoom／头像冲突。
+  remarkImageLayouts,
+]
+
+// ==================== 导出 Rehype 插件配置 ====================
+export const rehypePlugins: RehypePlugins = [
+  rehypeCodeMeta, // 只传递 code 的 meta；HTML 解析仍由下一步 raw 负责。
+  // 0. 必须早于消费 HTML 元素的插件：正文里写的 <h2> / <table> / <a> 仍是一串
+  //    文本节点，下面所有插件 visit 的都是 element，看不见它们。
+  //    Astro 内部管线末尾还会再跑一次 rehype-raw，此时已无 raw 节点，是空操作。
+  rehypeRaw,
+  rehypeImageSources, // 生成的大图 template 需保持 Astro 图片 visitor 可见
+
+  // 1. 正文媒体引用：相对路径的视频/音频改写为 /_media/…，无法服务的引用直接报错。
+  //    必须在 rehype-raw 之后，否则写在 HTML 里的 src 还只是一串文本。
+  rehypeMediaAssets,
+
+  // 2. 为标题添加 ID（用于锚点链接）
+  // 例如：## 标题 → <h2 id="标题">标题</h2>
+  [rehypeHeadingIds, { headingIdCompat: true }],
+
+  // 3. 渲染数学公式（使用 KaTeX）
+  rehypeKatex, // 将 LaTeX 公式转换为 HTML/CSS
+
+  // 4. 提示框/标注组件
+  [
+    rehypeCallouts,
+    {
+      theme: 'vitepress', // 使用 VitePress 风格的提示框样式
+    },
+  ],
+
+  // 5. 外部链接处理
+  [
+    rehypeExternalLinks,
+    {
+      // 外部链接是否在新标签页打开
+      rel: UI.externalLink.newTab ? 'noopener noreferrer' : [],
+
+      // 链接内容处理（添加新标签图标）
+      content: externalLinkContent,
+
+      // 图标元素的属性
+      contentProperties: externalLinkContentProperties,
+
+      // 链接元素属性
+      properties: externalLinkProperties,
+    },
+  ],
+
+  // 6. 标题自动添加锚点链接（生成可点击的链接图标）
+  [
+    rehypeAutolinkHeadings,
+    {
+      behavior: 'append', // 在标题内容后追加链接
+
+      // 锚点链接属性
+      properties: headingAnchorProperties,
+
+      // 锚点内容（# 符号）
+      content: {
+        type: 'text',
+        value: '#',
+      },
+    },
+  ],
+
+  // 7. 包装表格（使表格可以横向滚动）
+  [
+    rehypeWrapAll,
+    {
+      selector: 'table', // 选择所有 <table> 元素
+      wrapper: 'div', // 用 <div> 包裹
+    },
+  ],
+]

@@ -1,0 +1,395 @@
+:root {
+  color-scheme: only light;
+  --c-bg: #fff;
+  --c-scrollbar: #ddd;
+  --c-scrollbar-hover: #bbb;
+  --c-text: #000;
+  --font-heading: 'SourceHanSerifCN-Regular', serif;
+  --site-nav-width: var(--blog-shell-width);
+  --site-gutter: 28px;
+  /* Shared content target; images use the matching ARTICLE_COLUMN_WIDTH. */
+  --blog-shell-width: min(660px, calc(100vw - var(--site-gutter) * 2));
+  --blog-prose-width: var(--blog-shell-width);
+  --blog-reading-size: 1.0625rem;
+}
+
+@media (max-width: 600px) {
+  :root {
+    --site-gutter: 16px;
+  }
+}
+/* Two side gutters reserve 2 × (208px TOC + 48px clearance) = 32rem. */
+@media (min-width: 1200px) {
+  :root {
+    --blog-shell-width: min(
+      660px,
+      calc(100vw - 32rem - var(--site-gutter) * 2)
+    );
+  }
+}
+
+:root.dark {
+  color-scheme: only dark;
+  --c-bg: #050505;
+  --c-scrollbar: #222;
+  --c-scrollbar-hover: #444;
+  --c-text: #fff;
+}
+
+html {
+  scroll-behavior: smooth;
+  /* Sole document-level guard: long unbroken tokens must not widen the page. */
+  overflow-x: clip;
+  /* Reserve one viewport gutter so fixed nav and flow content share a center. */
+  scrollbar-gutter: stable;
+  background-color: var(--c-bg);
+}
+
+body {
+  /* Keep negative-z decorations above the body fill and below content. */
+  isolation: isolate;
+}
+
+::selection {
+  color: var(--c-text);
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+:focus-visible:not(input) {
+  --uno: 'outline-none ring-3 ring-[#8884] ring-offset-2 ring-offset-[var(--c-bg)]';
+}
+
+/* Scripted image/dialog focus can match :focus-visible after a pointer click.
+   Keep the focus target and hover shadows; hide only its keyboard indicators. */
+:root[data-input-method='pointer'] :is(:focus-visible, :has(> :focus-visible)) {
+  outline: none !important;
+  --un-ring-shadow: 0 0 #0000;
+  --un-ring-offset-shadow: 0 0 #0000;
+}
+
+/* Page progress bar */
+#page-progress-bar {
+  pointer-events: none;
+  z-index: 180;
+  position: fixed;
+  top: 0;
+  left: 0;
+
+  width: 100%;
+  height: 2px;
+
+  background: var(--accent);
+  opacity: 0.9;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition:
+    transform 220ms ease,
+    opacity 220ms ease;
+}
+
+#page-progress-bar[data-loading='true'] {
+  transform: scaleX(0.92);
+}
+
+#page-progress-bar[data-loading='false'] {
+  opacity: 0;
+}
+
+/* Scrollbar */
+@supports (scrollbar-width: auto) {
+  * {
+    scrollbar-width: auto;
+  }
+
+  #search-results,
+  #toc-sidebar > ul {
+    scrollbar-width: none;
+  }
+}
+
+@supports (scrollbar-color: auto) {
+  * {
+    scrollbar-color: var(--c-scrollbar) var(--c-bg);
+  }
+}
+
+/* Slide Enter Animation */
+@keyframes slide-enter {
+  0% {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  body:not([data-no-sliding]) .slide-enter,
+  body:not([data-no-sliding])
+    .slide-enter-content
+    > *:not(#desktop-aside):not(#mobile-control):not(table-of-contents) {
+    --enter-initial: 0ms;
+    --enter-stage: 0;
+    animation: slide-enter 1s both 1;
+    animation-delay: calc(
+      var(--enter-initial) + var(--enter-step) * var(--enter-stage)
+    );
+  }
+
+  .slide-enter-content > *:nth-child(1) {
+    --enter-stage: 1 !important;
+  }
+  .slide-enter-content > *:nth-child(2) {
+    --enter-stage: 2 !important;
+  }
+  .slide-enter-content > *:nth-child(3) {
+    --enter-stage: 3 !important;
+  }
+  .slide-enter-content > *:nth-child(4) {
+    --enter-stage: 4 !important;
+  }
+  .slide-enter-content > *:nth-child(5) {
+    --enter-stage: 5 !important;
+  }
+  .slide-enter-content > *:nth-child(6) {
+    --enter-stage: 6 !important;
+  }
+  .slide-enter-content > *:nth-child(7) {
+    --enter-stage: 7 !important;
+  }
+  .slide-enter-content > *:nth-child(8) {
+    --enter-stage: 8 !important;
+  }
+  .slide-enter-content > *:nth-child(9) {
+    --enter-stage: 9 !important;
+  }
+  .slide-enter-content > *:nth-child(10) {
+    --enter-stage: 10 !important;
+  }
+  .slide-enter-content > *:nth-child(11) {
+    --enter-stage: 11 !important;
+  }
+  .slide-enter-content > *:nth-child(12) {
+    --enter-stage: 12 !important;
+  }
+  .slide-enter-content > *:nth-child(13) {
+    --enter-stage: 13 !important;
+  }
+  .slide-enter-content > *:nth-child(14) {
+    --enter-stage: 14 !important;
+  }
+  .slide-enter-content > *:nth-child(15) {
+    --enter-stage: 15 !important;
+  }
+  .slide-enter-content > *:nth-child(16) {
+    --enter-stage: 16 !important;
+  }
+  .slide-enter-content > *:nth-child(17) {
+    --enter-stage: 17 !important;
+  }
+  .slide-enter-content > *:nth-child(18) {
+    --enter-stage: 18 !important;
+  }
+  .slide-enter-content > *:nth-child(19) {
+    --enter-stage: 19 !important;
+  }
+  .slide-enter-content > *:nth-child(20) {
+    --enter-stage: 20 !important;
+  }
+}
+
+/* View Transition API */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+}
+
+::view-transition-new(root) {
+  z-index: 9999;
+}
+
+/* Only the theme reveal needs the old snapshot on top. Page moves in dark mode must not use it. */
+html.theme-switching.dark::view-transition-old(root) {
+  z-index: 9999;
+}
+
+html.theme-switching.dark::view-transition-new(root) {
+  z-index: 1;
+}
+
+/* Panel Animation */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.prose h1.page-title {
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-synthesis: none;
+  font-size: 3.25rem;
+  line-height: 1.1;
+}
+
+.prose.post-header h1.page-title {
+  font-size: 2.5rem;
+  margin-bottom: 0;
+}
+
+.prose.post-header .post-subtitle {
+  margin-top: 0.95rem;
+  margin-bottom: 0;
+}
+
+.fade-in {
+  animation: fade-in var(--fade-in-duration, 0.3s) forwards;
+}
+
+.fade-out {
+  animation: fade-out var(--fade-out-duration, 0.3s) forwards;
+}
+
+/* Toc
+   Rail and active marker share --toc-rail-inset so a wrapped title
+   still lines the marker up with the track. */
+#toc-sidebar {
+  --toc-rail-width: 2px;
+  --toc-rail-gap: 0.55rem;
+  --toc-rail-inset: calc(var(--toc-rail-width) + var(--toc-rail-gap));
+  /* 目录是配角，色彩整体压淡：轨道、悬停底、选中底都比正文弱一档。 */
+  --toc-rail: color-mix(in srgb, var(--c-text) 16%, transparent);
+  --toc-item-bg: color-mix(in srgb, var(--c-text) 5%, transparent);
+  --toc-item-bg-active: color-mix(in srgb, var(--c-text) 8%, transparent);
+  background-image: linear-gradient(var(--toc-rail), var(--toc-rail));
+  background-repeat: no-repeat;
+  background-size: var(--toc-rail-width) 100%;
+  background-position: 0 50%;
+}
+
+#toc-sidebar ul,
+#toc-sidebar li {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+#toc-sidebar ul > li::before {
+  content: none;
+  display: none;
+}
+
+#toc-sidebar > ul {
+  padding: 0.2rem var(--toc-rail-gap) 0.2rem var(--toc-rail-inset);
+  background: none;
+}
+
+#toc-sidebar li + li,
+#toc-sidebar li > ul {
+  margin-top: 0.15rem;
+}
+
+#toc-sidebar .desktop-toc__list a {
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 0.38rem 0.55rem;
+  border: 0;
+  border-radius: 0.55rem;
+  color: var(--c-text);
+  font-weight: 400;
+  font-synthesis: none;
+  line-height: 1.5;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  opacity: 0.55;
+  transition:
+    background-color 200ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#toc-sidebar .desktop-toc__list > li > a {
+  padding-inline-start: 0.65rem;
+}
+
+#toc-sidebar .desktop-toc__list li li > a {
+  padding-inline-start: 1.45rem;
+}
+
+#toc-sidebar .desktop-toc__list li li li > a {
+  padding-inline-start: 2.25rem;
+}
+
+#toc-sidebar .desktop-toc__list li li li li > a {
+  padding-inline-start: 3.05rem;
+}
+
+#toc-sidebar .desktop-toc__list a::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: calc(var(--toc-rail-inset) * -1);
+  width: var(--toc-rail-width);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--c-text) 55%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+#toc-sidebar .desktop-toc__list a:hover {
+  background: var(--toc-item-bg);
+  opacity: 0.78;
+}
+
+#toc-sidebar .desktop-toc__list a[aria-current='true'] {
+  background: var(--toc-item-bg-active);
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+#toc-sidebar .desktop-toc__list a[aria-current='true']::before {
+  background: var(--accent);
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #toc-sidebar .desktop-toc__list a,
+  #toc-sidebar .desktop-toc__list a::before {
+    transition: none;
+  }
+}
+
+/* Tag */
+.inner-x-scroll {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
+  touch-action: pan-x;
+  scrollbar-width: none;
+}

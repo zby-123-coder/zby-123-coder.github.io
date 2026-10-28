@@ -1,0 +1,53 @@
+---
+import TocSidebar from '~/components/toc/TocSidebar.astro'
+import { FEATURES } from '~/config'
+
+import type { TocHeading } from '~/utils/toc'
+
+interface Props {
+  headings: TocHeading[]
+}
+
+const { headings } = Astro.props
+
+const { toc } = FEATURES
+const tocPosition = Array.isArray(toc) && toc[0] && toc[1].displayPosition
+---
+
+{headings.length > 0 && (
+  <aside id="desktop-aside" class="desktop-aside" data-position={tocPosition}>
+    <TocSidebar {headings} />
+  </aside>
+)}
+
+<style>
+  .desktop-aside {
+    /* Offset the TOC slightly outward without widening the reading column. */
+    --toc-space: calc(50% - var(--blog-prose-width) / 2 - var(--site-gutter));
+    --toc-center: calc(
+      50% + var(--blog-prose-width) / 2 + var(--toc-space) / 2 + 1rem
+    );
+    position: fixed;
+    top: calc(50% - 2rem);
+    transform: translate(-50%, -50%);
+    right: auto;
+    left: var(--toc-center);
+    z-index: 100;
+    width: min(13rem, calc(var(--toc-space) - 3rem));
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .desktop-aside[data-position='left'] {
+    right: var(--toc-center);
+    left: auto;
+    transform: translate(50%, -50%);
+  }
+
+  @media (max-width: 1199.9px) {
+    .desktop-aside {
+      display: none;
+    }
+  }
+</style>

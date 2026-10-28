@@ -1,0 +1,366 @@
+---
+import ListItem from './ListItem.astro'
+import RandomBrowse from '~/components/blog/RandomBrowse.astro'
+import { getBlogListItems } from '~/utils/data'
+import type { PostNavItem } from '~/utils/post-nav'
+import {
+  BLOG_PAGE_SIZE,
+  blogFirstPaintBootSource,
+  getPageNumbers,
+  serializeBlogQuery,
+} from '~/utils/blog-browser.js'
+import { withBasePath } from '~/utils/path'
+
+interface Props {
+  basePath?: string
+  requireTags?: boolean
+}
+
+const { basePath = withBasePath('/blogs/'), requireTags = false } = Astro.props
+const posts = await getBlogListItems()
+const randomCandidates: PostNavItem[] = posts.map((item) => ({
+  id: item.id,
+  title: item.data.title,
+  href: item.data.redirect || withBasePath(`/blogs/${item.id}/`),
+}))
+const firstPaintBoot = blogFirstPaintBootSource()
+const firstPageCount = Math.ceil(posts.length / BLOG_PAGE_SIZE)
+const showFirstPagePagination = !requireTags && firstPageCount > 1
+const pageHref = (page: number) =>
+  `${basePath}${serializeBlogQuery({ category: '', tags: [], page })}`
+const firstPagePaginationHtml = showFirstPagePagination
+  ? `<span aria-label="上一页" aria-disabled="true"><span aria-hidden="true">‹</span></span><div>${getPageNumbers(
+      1,
+      firstPageCount
+    )
+      .map((number) =>
+        number === '…'
+          ? '<span class="pagination-ellipsis" aria-hidden="true">…</span>'
+          : `<a href="${pageHref(number)}"${number === 1 ? ' aria-current="page"' : ''}>${number}</a>`
+      )
+      .join(
+        ''
+      )}</div><a href="${pageHref(2)}" aria-label="下一页"><span aria-hidden="true">›</span></a>`
+  : ''
+---
+
+<section
+  data-blog-browser
+  data-home={basePath}
+  data-tags-path={withBasePath('/tags/')}
+  data-require-tags={requireTags ? '' : undefined}
+  aria-label="文章列表"
+>
+  <script is:inline set:html={firstPaintBoot}></script>
+  {!requireTags && (
+    <>
+      <header class="blog-category-header" data-category-header hidden>
+        <p class="blog-category-kicker">分类</p>
+        <h1 data-category-title>文章</h1>
+        <p class="blog-category-count" data-category-count></p>
+      </header>
+      <h1 class="sr-only" data-default-title>
+        文章
+      </h1>
+    </>
+  )}
+  {requireTags ? (
+    <noscript>启用 JavaScript 后可按标签筛选文章。</noscript>
+  ) : (
+    <noscript>
+      <style>
+        [data-blog-browser]:not([data-paged])
+          [data-post-list]
+          > [data-blog-item] {
+          display: block !important;
+        }
+        [data-blog-browser] [data-pagination] {
+          display: none !important;
+        }
+      </style>
+      当前显示全部文章；启用 JavaScript 后可筛选和分页。
+    </noscript>
+  )}
+  <div class="blog-filters" data-filters hidden></div>
+  <p class="sr-only" data-status aria-live="polite"></p>
+  <div data-list-panel hidden={requireTags}>
+    <RandomBrowse
+      class="blog-random-top"
+      candidates={randomCandidates}
+      label="随便逛逛"
+    />
+    <div data-post-list>
+      {posts.map((item, index) => (
+        <div
+          data-blog-item
+          data-category={item.data.category}
+          data-tags={JSON.stringify(item.data.tags)}
+        >
+          <ListItem {item} priority={index === 0 && !requireTags} />
+        </div>
+      ))}
+    </div>
+    <p data-empty hidden>
+      没有符合条件的文章。<a href={basePath}>清空筛选</a>
+    </p>
+    <nav
+      data-pagination
+      aria-label="文章分页"
+      hidden={!showFirstPagePagination}
+      set:html={firstPagePaginationHtml}
+    />
+  </div>
+</section>
+<style is:global>
+  /* Divider on the following item, not the previous one: the spacing between
+     two cards is unchanged, but the line can never trail the last visible card
+     — the pagination capsule sits where that trailing line used to be. */
+  [data-blog-item]:not([hidden]) ~ [data-blog-item]:not([hidden]) {
+    padding-top: 24px;
+    border-top: 1px solid color-mix(in srgb, var(--c-text) 12%, transparent);
+  }
+  /* The HTML lists every post. This holds the unpaginated tail back until the
+     pager sets data-paged. Literal 9 is BLOG_PAGE_SIZE + 1; nth-child cannot
+     read a custom property. */
+  [data-blog-browser]:not([data-paged])
+    [data-post-list]
+    > [data-blog-item]:nth-child(n + 9) {
+    display: none;
+  }
+  /* Page-1 controls are in the HTML. Hide them until the pager runs when the
+     URL is not that page, so a filtered or later page does not flash them. */
+  html[data-blog-paint]:not([data-blog-paint='1'])
+    [data-blog-browser]:not([data-paged])
+    [data-pagination] {
+    display: none;
+  }
+  [data-blog-browser][data-require-tags] [data-list-panel]:not([hidden]) {
+    margin-top: 2.5rem;
+  }
+  [data-blog-browser] [hidden] {
+    display: none !important;
+  }
+  .blog-category-header {
+    margin-bottom: 2rem;
+  }
+  .blog-category-kicker {
+    margin: 0 0 0.45rem;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    color: var(--accent);
+  }
+  .blog-category-header h1 {
+    overflow-wrap: anywhere;
+    font-family: var(--font-heading);
+    margin: 0;
+    font-size: 1.75rem;
+    font-weight: 400;
+    line-height: 1.25;
+  }
+  .blog-category-count {
+    margin: 0.75rem 0 0;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    color: color-mix(in srgb, var(--c-text) 50%, transparent);
+  }
+  .blog-random-top {
+    margin-bottom: 1.25rem;
+  }
+  .blog-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 1.5rem;
+  }
+  .blog-filters a {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--c-text) 12%, transparent);
+    border-radius: 7px;
+    color: inherit;
+    text-decoration: none;
+  }
+  @media (max-width: 767px) {
+    .blog-category-header h1 {
+      font-size: 1.5rem;
+    }
+  }
+</style>
+<script>
+  import {
+    parseBlogQuery,
+    serializeBlogQuery,
+    selectBlogPage,
+    getPageNumbers,
+  } from '~/utils/blog-browser.js'
+  const isSwapEvent = (
+    event: Event
+  ): event is Event & { newDocument: Document; to: URL } =>
+    'newDocument' in event &&
+    event.newDocument instanceof Document &&
+    'to' in event &&
+    event.to instanceof URL
+  const update = (
+    doc: Document = document,
+    search = location.search,
+    hash = location.hash
+  ) => {
+    const root = doc.querySelector<HTMLElement>('[data-blog-browser]')
+    if (!root) return
+    const live = doc === document
+    const home = root.dataset.home!
+    const requireTags = root.hasAttribute('data-require-tags')
+    const query = parseBlogQuery(search, hash)
+    const posts = Array.from(
+      root.querySelectorAll<HTMLElement>('[data-blog-item]')
+    ).map((element) => ({
+      element,
+      data: {
+        category: element.dataset.category!,
+        tags: JSON.parse(element.dataset.tags!) as string[],
+      },
+    }))
+    const header = root.querySelector<HTMLElement>('[data-category-header]')
+    const defaultTitle = root.querySelector<HTMLElement>('[data-default-title]')
+    const filters = root.querySelector<HTMLElement>('[data-filters]')!
+    const empty = root.querySelector<HTMLElement>('[data-empty]')!
+    const pagination = root.querySelector<HTMLElement>('[data-pagination]')!
+    const panel = root.querySelector<HTMLElement>('[data-list-panel]')!
+    const showList = !requireTags || query.tags.length > 0
+    if (!showList) {
+      posts.forEach((post) => (post.element.hidden = true))
+      if (header) header.hidden = true
+      if (defaultTitle) defaultTitle.hidden = false
+      filters.hidden = true
+      empty.hidden = true
+      pagination.hidden = true
+      panel.hidden = true
+      root.querySelector('[data-status]')!.textContent = ''
+      root.dataset.paged = ''
+      return
+    }
+    const result = selectBlogPage(posts, query)
+    query.page = result.page
+    if (live) {
+      const canonical = new URL(location.href)
+      const stateUrl = new URL(home + serializeBlogQuery(query), canonical)
+      for (const key of ['category', 'tag', 'page'])
+        canonical.searchParams.delete(key)
+      stateUrl.searchParams.forEach((value, key) =>
+        canonical.searchParams.append(key, value)
+      )
+      canonical.hash = stateUrl.hash
+      if (canonical.href !== location.href)
+        history.replaceState(history.state, '', canonical)
+    }
+
+    const visible = new Set(result.items)
+    posts.forEach((post) => (post.element.hidden = !visible.has(post)))
+    root.dataset.paged = ''
+    panel.hidden = false
+    empty.hidden = result.total !== 0
+    root.querySelector('[data-status]')!.textContent =
+      `共 ${result.total} 篇文章，第 ${result.page} 页`
+    const showCategoryHeader = Boolean(query.category) && Boolean(header)
+    if (header) header.hidden = !showCategoryHeader
+    if (defaultTitle) defaultTitle.hidden = showCategoryHeader
+    if (showCategoryHeader && header) {
+      root.querySelector('[data-category-title]')!.textContent = query.category
+      root.querySelector('[data-category-count]')!.textContent =
+        `共 ${result.total} 篇文章`
+    }
+    const link = (label: string, state: typeof query) => {
+      const a = doc.createElement('a')
+      a.textContent = label
+      a.href = home + serializeBlogQuery(state)
+      return a
+    }
+    filters.replaceChildren()
+    const showFilters = !requireTags && query.tags.length > 0
+    filters.hidden = !showFilters
+    if (showFilters) {
+      query.tags.forEach((tag) =>
+        filters.append(
+          link(`${tag} ×`, {
+            ...query,
+            tags: query.tags.filter((t) => t !== tag),
+            page: 1,
+          })
+        )
+      )
+      filters.append(link('清空筛选', { category: '', tags: [], page: 1 }))
+      if (!query.category) {
+        const count = doc.createElement('span')
+        count.textContent = `共 ${result.total} 篇`
+        const tagsLink = doc.createElement('a')
+        tagsLink.textContent = '全部标签'
+        tagsLink.href = root.dataset.tagsPath!
+        filters.append(count, tagsLink)
+      }
+    }
+    pagination.replaceChildren()
+    pagination.hidden = result.pageCount <= 1
+    const control = (
+      label: string,
+      ariaLabel: string,
+      page: number,
+      disabled: boolean
+    ) => {
+      const element = disabled
+        ? doc.createElement('span')
+        : link('', { ...query, page })
+      element.setAttribute('aria-label', ariaLabel)
+      if (disabled) element.setAttribute('aria-disabled', 'true')
+      // The chevron is decoration: the name comes from `aria-label`. Left as
+      // bare text it shows up in the accessibility tree as a stray glyph.
+      const glyph = doc.createElement('span')
+      glyph.setAttribute('aria-hidden', 'true')
+      glyph.textContent = label
+      element.append(glyph)
+      return element
+    }
+    const numbers = doc.createElement('div')
+    getPageNumbers(query.page, result.pageCount).forEach((number) => {
+      if (number === '…') {
+        const span = doc.createElement('span')
+        span.className = 'pagination-ellipsis'
+        span.textContent = number
+        span.setAttribute('aria-hidden', 'true')
+        numbers.append(span)
+        return
+      }
+      const a = link(String(number), { ...query, page: number })
+      if (number === query.page) a.setAttribute('aria-current', 'page')
+      numbers.append(a)
+    })
+    pagination.append(
+      control('‹', '上一页', query.page - 1, query.page === 1),
+      numbers,
+      control('›', '下一页', query.page + 1, query.page === result.pageCount)
+    )
+    if (!requireTags)
+      doc
+        .querySelectorAll<HTMLAnchorElement>('[data-blog-category]')
+        .forEach((a) => {
+          a.href =
+            home +
+            serializeBlogQuery({
+              ...query,
+              category: a.dataset.blogCategory!,
+              page: 1,
+            })
+          if (a.dataset.blogCategory === query.category)
+            a.setAttribute('aria-current', 'true')
+          else a.removeAttribute('aria-current')
+        })
+  }
+  document.addEventListener('astro:before-swap', (event) => {
+    if (!isSwapEvent(event)) return
+    update(event.newDocument, event.to.search, event.to.hash)
+  })
+  document.addEventListener('astro:page-load', () => update())
+  document.addEventListener('blog:querychange', () => update())
+  window.addEventListener('popstate', () => update())
+  window.addEventListener('hashchange', () => update())
+  update()
+</script>

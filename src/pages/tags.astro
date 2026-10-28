@@ -1,0 +1,18 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro'
+import BlogIndexLayout from '~/layouts/BlogIndexLayout.astro'
+import TagFilter from '~/components/views/TagFilter.astro'
+import ListView from '~/components/views/ListView.astro'
+import { withBasePath } from '~/utils/path'
+---
+
+<BaseLayout
+  title="标签"
+  description="按标签浏览赵博洋的项目笔记与工作随笔"
+  bgType="dot"
+>
+  <BlogIndexLayout>
+    <TagFilter />
+    <ListView basePath={withBasePath('/tags/')} requireTags />
+  </BlogIndexLayout>
+</BaseLayout>

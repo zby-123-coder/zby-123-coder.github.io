@@ -1,0 +1,61 @@
+---
+import Link from '~/components/base/Link.astro'
+import { resolvePath } from '~/utils/path'
+import { isCurrentNav } from '~/utils/nav-path.js'
+
+import type { InternalNav, SocialLink } from '~/types'
+
+type Props =
+  | {
+      type: 'internal'
+      item: InternalNav
+    }
+  | {
+      type: 'social'
+      item: SocialLink
+    }
+
+const { type, item } = Astro.props
+
+const href = type == 'internal' ? resolvePath(item.path) : item.link
+const rel = type === 'internal' ? undefined : 'me'
+const external = type === 'internal' ? false : true
+const ariaCurrent =
+  type === 'internal'
+    ? isCurrentNav(Astro.url.pathname, href, resolvePath('/'))
+      ? 'page'
+      : false
+    : undefined
+---
+
+<Link
+  data-nav-link={type === 'internal' ? '' : undefined}
+  class={`${
+    item.displayMode === 'iconHiddenOnMobile' ||
+    item.displayMode === 'textHiddenOnMobile'
+      ? 'lt-md:hidden'
+      : ''
+  } op-transition`}
+  {href}
+  title={item.title}
+  {rel}
+  {external}
+  aria-current={ariaCurrent}
+>
+  {(item.displayMode === 'alwaysText' ||
+    item.displayMode === 'textHiddenOnMobile') && <span>{item.text}</span>}
+  {(item.displayMode === 'alwaysIcon' ||
+    item.displayMode === 'iconHiddenOnMobile') && <div class={item.icon} />}
+  {item.displayMode === 'textToIconOnMobile' && (
+    <>
+      <span class="lt-md:hidden">{item.text}</span>
+      <div class={`md:hidden ${item.icon}`} />
+    </>
+  )}
+  {item.displayMode === 'iconToTextOnMobile' && (
+    <>
+      <span class="md:hidden">{item.text}</span>
+      <div class={`lt-md:hidden ${item.icon}`} />
+    </>
+  )}
+</Link>

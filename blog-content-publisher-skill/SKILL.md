@@ -1,0 +1,366 @@
+---
+name: blog-content-publisher
+description: >
+  维护 YuBlog（Wutong-Yu Astro 站）所有可改内容。按页面改：文稿与配图、首页近期笔墨和标签/归档所依赖的文章元数据、
+  项目 JSON、关于作者介绍、拾趣分类（可新增、图标可选）与个人社交、友链 JSON、顶栏导航与顶栏 GitHub、友链申请模板文案。
+  触发：发博客、改文章、改封面、改 titleImage、改分类、改关于、改拾趣、新增拾趣分类、给拾趣分类补图标、改设备、改动漫、改影视、改游戏、改书、改 Kpop、改友链、改项目、改导航、改顶栏 GitHub、改关于页社交、改名片站名。
+  能把作者交来的稿子落地：本地图片复制进文章配图目录并改写引用（外链保持外链）、按内容自动排版（grid／横滚／绕排）、把书影视条目生成卡片（可联网补链接与封面）、落地 Excalidraw 图与博文链接卡，含排版／卡片／Excalidraw／博文链接卡时默认启动或复用同一 worktree 的 dev 并核实文章预览链接。
+  不要用来做布局实现、CSS 或交互重构。
+---
+
+# YuBlog 内容维护
+
+按**页面**改用户能看见的文案和数据。契约以 `src/content/schema.ts` 为准，旧示例和它冲突时听 schema。
+
+先确认仓库根有 `package.json`。不碰无关的工作区改动。不要 commit / push / 部署，除非用户明确说。
+
+## 先判断改哪一页
+
+| 用户在说 | 页面 | 改哪里 |
+| :--- | :--- | :--- |
+| 发文章、改正文、改封面/标题图、改分类标签、草稿 | 首页近期笔墨 + 文稿 + 标签 + 归档 + 详情 + 全文 RSS | 文：`src/content/blogs/`；正文图：`src/content/blogs/<名>-img/`；封面：`src/content/blogs/_title-images/` + `titleImage` |
+| 改标签展示（标签名来自文章） | 标签页 | 改各篇 `tags:`，不要手写标签页数组 |
+| 归档多一条/少一条 | 归档 | 同上，靠 `pubDate` |
+| 项目卡片 | 项目 | `src/content/projects/data.json` |
+| 作者介绍 | 关于 `/about/` | `src/content/about/about.md` |
+| 改拾趣内容、新增或重排拾趣分类（如设备、动漫、旅行） | 拾趣入口和对应子页 | `src/content/interests/<id>.md`，图放对应 `<id>/` |
+| 友链增删改、申请模板里的站名/链接 | 友链 | `data.json` 或 `FriendsApplyPanel.astro` 的 `friendInfo` |
+| 顶栏页面名、顶栏 GitHub | 全站顶栏 | `src/config.ts` 的 `UI` |
+| 个人社交（名字、链接、图标） | 首页与关于 | `config.ts` 的 `AUTHOR_LINKS`；若 `about.md` 也展示同一联系方式，再同步该字段 |
+| 站点标题、域名 | 全站 SEO | `src/config.ts` 的 `SITE` |
+
+本 skill 管理内容与配置，可以用现有 gallery／figure／card／excalidraw／blog-link 语法排版正文；布局实现、CSS 和交互逻辑属于实现范围，不混入一次内容更新。
+
+读 schema，再读同目录一份现成文件当样例。
+
+---
+
+## 首页 / 标签 / 归档 / 文章详情（同一批文章）
+
+完整列表在 `/blogs/`，首页只显示最近五篇已发布文稿。文章还进入标签、归档、`/blogs/<slug>/` 和全文 RSS。生产不含草稿；开发网页列表／正文可预览草稿，RSS 在开发和生产均只含已发布文章。首页统计／预览和顶部分类菜单只读已发布文章。`search: false` 不会从 RSS 排除文章，RSS 不携带页面导航、封面卡片或主题样式。
+
+1. 文件名短而稳。子目录会进 slug。**不要擅自改已有文件名**（会改 URL）。用户明确要求改名时可以改，但本站**没有**旧 slug → 新 slug 跳转，旧链接会 404。
+2. `title`（最多 60 字）、`pubDate`、`category` 必填。日期推荐写 `YYYY-MM-DD`；预检也接受 ISO 时间戳，不改写源文件。
+3. 用户没说发布就 `draft: true`。只有明确要上线才 `false` 或删掉。
+4. `category` 必填，任意非空字符串；不写或写空会构建失败。首页、菜单、列表和归档使用原值，不合并任何别名，没有默认分类；首页／列表／归档直接读 `data.category`。分类名以作者选择为准，未经要求不改已有值。动态入口、URL 与精确筛选的唯一权威是 `src/utils/blog-browser.js`，不维护固定分类允许表；归档配色由 `src/utils/blog-category-colors.js` 负责。发布文章并重新构建后，菜单按已发布文章的分类篇数降序、同数按名称的 `zh-Hans-CN` 排序，每类最多四篇最近文章，发布日期顺序不变；草稿不参与入口、计数或预览，仅含草稿的分类不出现，已发布集合为空时只保留“查看全部文稿”链接。分类统一使用名称编码 URL 片段（如 `/blogs/#旅行`）；旧 `#tech`、`#thought`、`#diary` 仅为 URL 兼容别名，分别精确定位“技术”“思考”“日记”，英文原值 `tech` 等用 `#category=tech` 逃逸。旧 `?category=` 始终按原值精确筛选，启用脚本后转换为等价片段。归档分类从 `src/data/blog-category-colors.json` 的 16 色预设池自动领取未用颜色，已有映射不变，删除分类不释放占位。本地打开归档或构建后，要将自动更新的配色记录与新分类文章一起提交；开发归档展示的草稿分类也会领取颜色。池用尽时报错，补充 `palette` 后再构建；无需改 CSS 或在页面复制分类判断。`tags` 是独立话题数组。
+5. `description` 短、事实。极短文才 `toc: false`。不进搜索才 `search: false`。
+6. 正文图：放到 `src/content/blogs/<短名>-img/`（与文章同级；分组文章放同组目录下，例如 `src/content/blogs/算法笔记/algo-img/`）。Markdown 用**相对路径**：`![说明](./<短名>-img/文件.png)`。
+
+   - 推荐图片与文章同目录或放在子目录，写 `./`；上层共享图可写 `../`，同样进管线。先确认相对路径对应的文件存在。
+   - 作者交来的图由你**搬进去**：桌面上、别的文件夹里或截图里的图片都先复制到该目录，文件名用短 ASCII（如 `street-landscape.jpg`），再把正文引用改写成相对路径；已经在正确位置的图不用再动。不要压缩、改尺寸或转格式，也不要让正文留下仓库外路径或 `file:` 链接。多图先建好目录。
+   - 图片一律走 Astro 图片管线：自动转 WebP、生成 `srcset`、注入宽高、懒加载。**不要手工压缩源图**，也不要再放进 `public/`。已经在 `public/` 里的站点级图（图标、头像等）可以直接用以 `/` 开头的绝对路径引用，如 `![说明](/avatar.webp)`，但它不进管线、不做优化，正文配图仍应放进文章目录。
+   - 必要时用 alt 后缀声明显示宽度：`![说明|w480](./<短名>-img/文件.png)`。只支持像素，不支持百分比；桌面正文列宽 660px，所以「半宽」可写 `|w330`（窄屏仍受实际列宽限制）。**不要把 `|w480` 写进图片 URL**，它会被当作文件名；缺失文件构建失败，未解析的占位图由产物检查拒绝。不写标记就是原图宽度（超过列宽时按列宽显示）；源图本身就比目标更窄时不必写标记。
+   - **不要用原始 `<img>` 标签**：本地相对路径会在构建期直接报错并提示改用 Markdown 语法，不会静默 404。代码块里的示例除外。
+   - 外链图片（别的站上的图）Markdown 与原始 `<img>` 两种写法等价，都不进管线。**外链默认保持外链，不下载进仓库**；保持时要提醒作者它没有优化、对方删图后正文会开天窗，作者要求搬进仓库时再抓取落盘。`data:` 内联图片（从 Notion／Word／部分网页粘贴时会带出来）构建期报错，先把图存成文件。
+
+7. 列表和详情标题块的封面**只有一条路**：文件放 `src/content/blogs/_title-images/`，frontmatter 用 `titleImage` / `titleImageAlt`。
+
+   ```yaml
+   titleImage: ./_title-images/night-lantern.webp
+   titleImageAlt: 夜晚提灯的动漫场景
+   ```
+
+   - **不要写 `cover` / `coverAlt`**，字段已删除；列表也不会再 fallback。
+   - 有 `titleImage` 必须有 `titleImageAlt`。没封面就两行都别写，列表对应位置空着。
+   - 路径是相对于本文件的：文章在 `src/content/blogs/` 下写 `./_title-images/<文件>`，在组目录里写 `../_title-images/<文件>`。文件名短、ASCII，如 `night-lantern.webp`。
+   - 封面同样进管线，会按列表卡片与文章封面的尺寸自动转 WebP，不必手工压缩。
+   - 不要把同一张封面再当正文第一张，除非正文真的还要用。
+8. 正文不要再写一个 `# 标题`，frontmatter 的 `title` 已经是页标题。从 `##` 开始。
+9. 不编造引用、日期、数据。
+10. 跳到另一篇文章写**站内 URL**：`[27移除元素](/blogs/算法笔记/算法-1数组链表/#27)`。`./另一个文件.md#锚点` 在 Typora 里能点，站上是 404，而且**构建不报错**。改写前确认目标文章存在且不是 `draft: true`；目标不在站点上时删掉链接、保留可见文字，并说明移除了哪一条，不要猜 URL。slug 拿不准就先 `pnpm build`，再 `ls dist/blogs/<组>/` 看真实目录名。
+11. 自定义锚点写 `<a id="27"></a>`（短 ASCII id，跟在标题那一行末尾）。**不要清理看起来“没人用”的空锚点**：同页 `](#15)` 和跨文章 `/blogs/…/#27` 两类跳转都以它们为目标。
+
+```md
+---
+title: 文章标题
+description: 给列表、封面描述和 RSS 的一句摘要。
+pubDate: 2026-09-18
+category: 技术
+tags: [Astro]
+titleImage: ./_title-images/foo.webp
+titleImageAlt: 一句能读的描述
+---
+```
+
+校验前运行 `pnpm install`，并确保 Node.js 与 Python 3 可用。预检复用 Astro 的 frontmatter YAML 解析器：`pubDate: 2026-09-21 # 发布时间` 的行尾注释会忽略，引号内的 `#` 和多行正文会保留；YAML 语法错误明确失败。日期接受 ISO 日期或时间戳，推荐日常继续写 `YYYY-MM-DD`；不改写源文件，也不替代 Astro schema／构建验证。
+
+校验：
+
+```bash
+python3 blog-content-publisher-skill/scripts/validate_content.py --root . --blog src/content/blogs/slug.md
+```
+
+---
+
+## 正文里的原生 HTML 与媒体
+
+正文里的 `<h2>`、`<table>`、`<blockquote>` 和 Markdown 写法获得同样处理（标题 id、锚点、目录条目、表格滚动容器、提示框）。
+
+- `<style>` 块、`style="…"`、`class` 都生效；`<style>` 是**整页全局**的，会影响顶栏和目录，用带前缀的类名或 UnoCSS 工具类。`<div>`、`<span>`、`<br>`、`<details>` 原样透传。
+- 图片尺寸写 alt 的 `|w` 标记，例如 `![说明|w330](./x.png)`；不要用 `style="zoom:50%"`（Typora 拖拽缩放、LeetCode 粘贴会自带）。外链图 Markdown 与 `<img>` 两种写法等价。
+- 视频：外链平台用 `<iframe>`；本地文件用 `<video src="./demo.mp4">`，文件放文章旁边或子目录，构建与 dev 启动时镜像到 `public/_media/`，Typora 与站点两边都能播；dev 中增删或替换媒体文件后重启服务器。
+- HTML 动画／交互演示：文件放进 `public/demos/<文章短名>/`，在普通 `.md` 里用 `<iframe src="/demos/<文章短名>/<文件>.html" title="演示说明" sandbox="allow-scripts" loading="lazy" style="width: 100%; height: 420px; border: 0;"></iframe>` 嵌入，按内容手动调整高度，并在旁边补同地址的普通文字链接供 RSS 阅读者打开。HTML 不会从 `src/content/` 自动镜像；子路径部署时 `src` 与链接需带实际 `SITE.base`。保持沙箱不授予 `allow-same-origin`；演示不继承博客样式，内部资源不走内容管线。`public/` 文件不受文章 `draft` 控制，构建后也会公开。
+- 相对媒体引用允许 query／fragment 后缀，如 `./demo.mp4#t=10`、`./demo.mp4?download=1`；改写时保留后缀，它们不属于文件名。
+- 视频旁建议补一行文字链接（否则订阅者在 RSS 里只看到空白），指向同一个文件即可：`[本视频](./demo.mp4)`。指向本地媒体文件的链接会和 `src` 一起被改写。
+- 下面这些会**构建期报错**（带文件路径与行号），不会静默 404：原生 `<img>` 写相对路径（改用 Markdown 语法；处于 `.mdx` 页面或同一路径也被 Markdown 图片语法引用时例外）、`<video poster="…">` 写相对路径（poster 是图片，不进管线也不被镜像，请把图片放进 `public/`、不要放 `public/_media/`，再用 `/…` 引用）、`data:` 内联内容（先存成文件）、`file:` 等浏览器打不开的协议、相对路径逃出 `src/` 目录、媒体文件不存在或指向的是目录／符号链接、扩展名不在支持列表、解码后的文件名或目录名含 `#` 或 `?`（如 `%23`／`%3F`，本站取不到，改名即可）。报错给出的是**源文件**行号与作者写的原始路径，可以直接照着改。
+- RSS 会删掉 `<video>`／`<iframe>`／`<style>`／`class`，公式降级为 TeX 源码；视频旁的文字链接会保留。
+
+---
+
+## 公式与代码标记
+
+行内公式写 `$…$`；块级公式用独立行的 `$$` 包围公式正文。本站使用 remark-math，`\(...\)` 与 `\[...\]` 不会被解析为数学分隔符。
+
+代码围栏可用 Expressive Code 的 `diff`／`ins`／`del` 等 text-markers；演示见 `src/content/blogs/image-layout-demo.md`。
+
+## 正文图片排版选择
+
+先读正文，按内容选最简单的排版，不为了展示功能把全部图片改成相册：单张需要看清细节用普通 Markdown 图；需要并排对照用 grid；一组按顺序浏览的图片用 scroll；一张图配连续正文用 figure。判断和改写由你直接完成，不必先让作者选语法；只对确实需要排版的图加布局，普通单图不加任何指令。保持作者图片与文字的源顺序，不虚构说明，也不替作者删图、并段或改说明。
+
+```md
+:::gallery
+![第一张](./文章-img/a.png)
+
+![第二张](./文章-img/b.png)
+:::
+
+:::gallery{layout="grid" columns="3"}
+![第一张|w330](./文章-img/a.png) ![第二张|w330](./文章-img/b.png)
+
+![第三张|w330](./文章-img/c.png)
+:::
+
+:::gallery{widths="240px 1fr"}
+![固定列](./文章-img/a.png)
+
+![剩余列](./文章-img/b.png)
+:::
+
+:::gallery{layout="scroll"}
+![第一张](./文章-img/a.png)
+
+![第二张](./文章-img/b.png)
+:::
+
+:::figure{side="left"}
+![图示|w240](./文章-img/detail.png)
+
+至少一块正文，桌面围绕图片阅读。
+:::
+```
+
+- gallery 仅允许 `layout`／`columns`／`widths`。layout 只可 grid／scroll，默认 grid；grid 默认两列，columns 只可 `2`／`3`。不等宽用 `widths="1fr 2fr"`（1:2）或 `widths="240px 1fr"`（第一列目标 240px，第二列占剩余）；widths 为二／三个正有限数的 px／fr 值，可小数，不支持 %／auto／calc()；省略 columns 时按值数量推导，显式 columns 必须匹配。scroll 不接受 columns／widths。至少一张独立 Markdown 直接图片，可同段多图但段中只能有图片和空白。文字、列表、引用式图片、链接包图、HTML／MDX 图都不作为相册项，说明写在相册外。
+- figure 仅允许 side，left／right，默认 right。第一段恰好一张直接图片，后面至少一块有可见文字的正文；注释、`<br>`、空 HTML 或只有媒体的内容不算正文。gallery／figure 不能嵌套或相互嵌套；非法属性、属性值和结构会 build fail 并带源位置，不删图规避报错。
+- 图片仍用相对源路径并走 Astro，原有 `|w` 含义不变；显式像素宽度用标记，容器响应式尺寸由既有 CSS 管理。660px 版心内不 breakout，静止时不裁切；600px 及以下 grid 单列、figure 上下。scroll 全部图片静态存在，横滚按中心吸附（两张及以上加箭头／圆点，单图无控件）；桌面两侧可露出相邻图，窄屏主图常铺满。区域高度随视口调整、翻页不跳动；`|w` 与容器宽高限制同时生效。不自动播放，无 JS 仍可阅读和横滚。
+- 普通 Markdown 正文图直接点图或键盘 Enter／空格在原生 dialog 放大，不写额外放大标记，也不显示角落标识；悬浮时原边框内微缩放并显示 `zoom-in`，减少动态偏好下不缩放。大图显示 `zoom-out`，点图／Esc／遮罩／关闭按钮退出，恢复焦点与滚动锁；浅色遮罩灰白、深色暗色。作者图片链接仍跳转，链接外大图入口只在键盘焦点时显示；`titleImage` 头图／文稿列表缩略图和头像不属于此范围，`:::card` 配图仍可放大。原尺寸图在 inert template 内仍由 Astro 解析，打开前不加载，不手写资源 URL。RSS 沿用 sanitizer 去 template／样式／控件，剩余全部图文按源顺序降级。
+- 不为内容排版引入依赖、轮播库、第二解析器、预览后台、preview manager 脚本或测试框架；布局实现与交互 authority 不随内容更新改动。
+
+### Excalidraw 图
+
+作者发来架构图／手绘流程图时用 `:::excalidraw`，**不要**把完整 JSON 塞进 ` ```excalidraw ` 围栏，也不要写 `blob:` 链接。
+
+1. 把 `.excalidraw` 源文件放进该文的 `*-img/`，文件名短 ASCII，例如 `verify.excalidraw`。
+2. **首选工作流**：只要有 `.excalidraw` 即可 → 复制进 `*-img/` → 正文写相对路径指令。构建时源文件镜像到 `/_media/…`；页面用官方 SVG exporter 和独立只读视口渲染场景，下载按钮指向静态 `/_media` URL。
+3. `preview`（同主名或显式路径的 SVG／PNG）**可选**，仅作无 JS／画布加载失败时的回退；没有预览也能构建与发布。
+4. 属性：`src` 必填（相对路径的 `.excalidraw` 画布；`.excalidrawlib` 素材库需先导入画布再导出，不可直接嵌入）；`preview`／`alt`／`height` 可选（默认 16∶9 固定卡片；`height` 可覆盖）。指令体必须为空。
+
+```md
+:::excalidraw{src="./image-layout-demo-img/verify.excalidraw" alt="Verify 页：离线 UI 目录示意"}
+:::
+```
+
+下载打开的是站点上的静态 `/_media/…/*.excalidraw`，不是临时 `blob:`。完整演示见 `src/content/blogs/image-layout-demo.md`。
+
+### 博文链接卡片（双向）
+
+链到本站另一篇文章时用 `:::blog-link`。构建期按 `slug`（内容集合 id，与 `/blogs/<id>/` 一致）填入目标文的 `title`／`description`；右侧作者头像由站点提供（圆角方形），**内容侧不要写头像路径**。
+
+「双向」只是约定：若要对端也能点回来，在**两篇文章**里各自放一张卡；站点**不会**自动反链。
+
+```md
+:::blog-link{slug="astro"}
+:::
+```
+
+可选覆盖：`title`、`description`、`avatar`（一般不用）。无 `slug` 时必须手写安全的 `href`（http(s)／mailto／站内 `/…`）和 `title`。目标不存在或为草稿会使构建失败。
+
+### 需要预览时自动启动 dev
+
+写完或改完博客后，读文章正文判断是否实际需要看效果：含 gallery／figure 排版、`:::card` 卡片、`:::excalidraw`、`:::blog-link`、视频／音频时默认预览；纯文字、只有普通正文图的文章不启动 dev，在交接里说明未预览。普通代码块里的示例不是实际布局，不为判断增加正则脚本。需要预览时默认执行以下步骤，不必再要求用户手动启动：
+
+1. 确认本次编辑的仓库／worktree 绝对路径，后续命令都在该目录执行。先查平台可用的长期 pane／task 和服务进程；复用 dev 前必须确认服务进程 cwd 是这个 worktree（例如用平台任务信息或 `lsof -a -p <pid> -d cwd`），不能只凭端口、页面标题或仓库名，也不能复用其他 worktree 的服务。
+2. 若没有同 worktree 的 dev，通过平台可用的后台 pane／task 在该目录运行 `pnpm dev`（需要打开浏览器时可用 `pnpm dev --open`；pnpm 不在 PATH 而 Corepack 可用时用 `corepack pnpm dev`），保留日志并让服务持续运行供用户查看；不强绑定 Herdr，不新增进程管理脚本。端口占用时让 Astro 选择可用端口，不终止别人的服务，不依赖固定 4321。
+3. 从该服务日志核实真实 `Local` 地址，按实际 base 和文章路由构造预览 URL。请求该文章（如 `curl --fail '<实际文章 URL>'`），确认 HTTP 成功且返回目标文章而非错误页，再给用户链接；不能仅凭启动命令退出码、首页可达或猜测 slug 称已预览。博客草稿在 dev 可读，开发／生产 RSS 仍排除草稿。
+4. 用户明确禁止启动、环境不能保持后台进程或启动／请求失败时，报告“未预览”及原因，不给未经验证的链接、不称已验证；已经有同 worktree 服务时也遵守用户限制。成功预览只证明 dev 页面可访问，不代替 `pnpm build` 或交互／资源验收。
+5. 交接包含实际文章预览链接、同 worktree 服务状态及仍未验证的项目；不把临时运行日志、端口或检查快照写进仓库文档。
+
+---
+
+## 项目 `/projects/`
+
+只改 `src/content/projects/data.json` 数组。先读完整份。
+
+必填：`id`（展示名）、`link`（http/https）、`desc`、`category`。`icon` 可选，格式 `i-collection-name`。
+
+新项追加到数组；`category` 沿用已有分类（如 `Agent`、`Personal`、`RAG`），用户指定了再新开。不要为了好看重排无关项。
+
+---
+
+## 关于与拾趣
+
+`/about/` 只渲染 `src/content/about/about.md`。保持作者原文，仅做必要 Markdown 结构，不编造经历或人设。页面标题／说明由 `src/pages/about.mdx` 配合 `PageHeading` 渲染，不由内容 frontmatter 创建按钮。关于内容仅维护这一个 Markdown 文件。
+
+兴趣内容位于 `src/content/interests/`，入口 `/interests/`，子页 `/interests/<id>/`。分类来自该目录顶层的 `.md` / `.mdx` 文件，排除 `recent.md`；**不固定分类 ID 或数量**。下表是现有分类示例，不是允许列表：
+
+| ID | 内容 |
+| :--- | :--- |
+| `device` | 日常设备、配件与订阅 |
+| `anime` | 动漫，含国漫 |
+| `movie` | 电影，含动画电影 |
+| `tv` | 电视剧与综艺 |
+| `game` | 游戏 |
+| `book` | 书 |
+| `kpop` | 喜欢的团体与 idle |
+| `software` | Mac 与手机软件 |
+
+读取同目录样例后修改。frontmatter 的 `title`、`description` 必须为非空字符串，`order` 必须为非负整数；三者供入口、子页和顶部下拉共同使用，`order` 越小越靠前。子页标题直接是分类名，不加“拾趣-”。
+
+### 新增拾趣分类
+
+1. 在 `src/content/interests/` 顶层新建 `<id>.md`（或 `.mdx`），不要放进配图子目录。文件名去掉扩展名就是分类 ID 和路由；已有文件不要擅自改名，以免改变 URL。
+2. 填写元数据和正文。例如 `src/content/interests/travel.md`：
+
+   ```md
+   ---
+   title: 旅行
+   description: 路上的记录
+   order: 7
+   ---
+
+   这里写正文。
+   ```
+
+   `7` 只是示例排序值，不是分类数量上限。拾趣没有 `draft` 开关；新增文件会随下一次构建发布，不套用博客草稿规则。
+3. 重新构建后自动生成 `/interests/travel/`，并加入拾趣入口和顶部下拉菜单。无需改 `UI.internalNavs`、手写路由或在组件内复制分类列表。
+4. 图标可选。用户未指定图标时，先保留纯文字菜单，不补默认图标、空图标容器或占位间距。需要图标时，只在 `src/config.ts` 的 `INTEREST_ICONS` 中以文件名（不含扩展名）为键添加，例如 `travel: 'i-ri-compass-line'`。映射值已自动进入 UnoCSS safelist，不用再手工维护一份。
+5. 运行 `pnpm check`、`pnpm build`、`pnpm test:built-restructure`、`pnpm test:built-markdown`；核对新子页、入口和菜单的标题、说明、顺序及图标状态。分类变多或名称变长时，检查窄屏菜单换行和内部滚动，不把自动收录理解为任意数量都保证布局可用。
+
+### 正文与配图
+
+图片放在对应子目录，例如 `src/content/interests/device/`，Markdown 用 `![说明](./device/file.png)`，需要限宽时写 alt 的 `|w300`。共享图也可用 `../`；引用按 Markdown 文件所在位置解析。拾趣内容和图片统一维护在 `src/content/interests/`。
+
+入口页只展示分类列表。首页近期书影游只改 `recent.md`；该文件不进分类集合，不写 `order`，不加入顶部菜单。分类子页与关于页自动按全局目录配置收录正文标题，没有符合级别的标题时隐藏目录；页面顶部标题不参与目录。拾趣正文以三级标题分组，需要细分时使用四级标题。
+
+电影、电视剧、动漫、游戏的条目使用默认横卡。作者可按需填写评分 `score` 和日期 `date`，两者都与观看／游玩状态无关；没有作者提供的值时省略对应属性：
+
+```md
+:::card{title="片名" href="https://zh.wikipedia.org/wiki/片名" score="5" date="2026.10.18" label="电影"}
+![片名海报](./movie/poster.jpg)
+
+原有短评或状态。没有作者原文时不要虚构个人评价；仅有链接的条目保留“正在看／准备看／准备玩”等状态。
+:::
+```
+
+`date` 仅用于横卡，按作者提供的日期填写，例如 `2026.10.18`；插件只去除首尾空白，不解析或转换日期格式。省略、空字符串或纯空白都不生成日期行，也可只写日期、不写评分。日期显示在评分下方、介绍上方，以“日期：”开头，字号与评分一致，日期值在深浅主题下均与标题使用相同绿色。卡片有封面时，右侧内容区高度跟随封面；标题、评分和日期各占一行时，评论通常可见约三行，实际行数随换行变化，超出部分在卡片内上下滚动。
+
+卡片最多一张独立 Markdown 图片作为封面，也可无封面。介绍只写文字及其排版／链接，不放额外图片或嵌入媒体；包括嵌套 Markdown 图片、HTML／静态 MDX 媒体及指令生成的媒体在内的违规会使构建失败，不会自动删图。图片需求放到卡片外的正文；代码里字面的 `<img>` 不算图片。
+
+书页使用竖卡，`meta` 放原作者姓名，不填写评分，按书的类型用三级标题分组，每类独立一排横滑栏，数量少或边界不清的类别可合并，组内保留原有顺序；封面放 `src/content/interests/book/`。首页与自定义样式演示的卡片标题 `href` 指向对应作品 Wiki，不使用拾趣分类页；优先采用已有 Wikipedia 条目，无条目时使用经核对的作品 Wiki（例如《牧神记》的萌娘百科条目），不要拼出不存在的地址。此选择属于内容，不在渲染器里维护作品映射。首页近期书影游也用竖卡，`meta` 沿用原介绍／评论，可精简而不编造。
+
+`score` 用作者写的分数，范围 0 到 5，只接受半星步进；非法分数或嵌套卡片会使构建失败。`href` 只接受 http(s)、mailto 和站内路径。有封面时，只放一张独立成段的图片，路径按图片管线写相对路径。连续卡片按容器宽度自动分列，当前版心最多两列；宽屏单张保留空列、与双卡同宽，窄屏填满一行，Markdown 标题将卡片分成不同网格。首页不另设标题或卡片样式。
+
+需要参考海报书架的竖版横滑栏时，使用 `layout="portrait"`；专辑等方图使用 `layout="square"`。小字用 `meta`，可写作者、制作方、专辑名、分类、年份或状态。连续且布局、滚动模式都相同的卡片自动分组，标题、段落、布局或 `scroll` 变化会分隔卡片栏：
+
+```md
+:::card{layout="portrait" title="夏日重现" meta="任意小字信息" href="https://zh.wikipedia.org/wiki/夏日重現"}
+![封面说明](./anime/poster.jpg)
+:::
+
+:::card{layout="square" scroll="auto" title="I NEVER DIE" meta="i-dle" href="https://zh.wikipedia.org/wiki/I-dle"}
+![专辑封面](./kpop/cover.jpg)
+:::
+```
+
+竖卡和方卡都必须有标题和一张独立 Markdown 封面；`meta` 和 `href` 可省略。不要带 `score`、`date`、`label` 或介绍正文，这些输入会报错而不会被隐藏。竖封面按 `2:3` 裁切，方封面按 `1:1` 裁切；专辑封面通常就是正方形，源图不是时仍裁切，点击可看完整图片。资源默认宽度 480，显式 `|w` 仍优先。当前桌面版心竖卡大约四张半、方卡大约五张半，手机保留横滑与后续露出，不改全站版心。标题自然换行，小字最多两行高度，超长时独立上下滚动且可键盘聚焦。小字区及默认横卡评论区的纵向滚动条默认隐藏，仅实际滚动时短暂显示。横滑栏无灰色底框，直接嵌入背景；深浅主题可读；无 JS 仍可横滚，聚焦栏后用左右方向键，RSS 保留全部作者条目的封面、标题和小字顺序。
+
+需要自动滚动时，这一排每张都写 `scroll="auto"`，不要只写第一张。条目必须多到排不开一屏才会动：桌面版心下竖卡通常多于四张、方卡多于五张，不够时保持手动横滑，不报错。滚动头尾相接，左右淡出；按下或键盘聚焦时暂停，单纯悬停不暂停。减少动态效果或无 JS 时不自动滚。不要把 `scroll` 写到默认横卡上。
+
+### 生成卡片
+
+作者给一串片名／书名（可能带评分、日期或链接）时，由你直接生成卡片，不必让作者写语法。先按页面决定布局：书页与首页近期内容使用上述竖卡；专辑等方图使用方卡；默认横卡才允许评分、日期、角标、介绍和无封面降级：
+
+- `title` 用作者写的名称；默认横卡的 `label` 用所在分类对应的词（`电影`／`电视剧`／`动漫`／`游戏`／`书`），竖卡和方卡不填 `label`。
+- `href` 可以联网补：找到真实存在的条目页（维基百科等）再写，只用 http(s)；找不到可靠页面就不写 `href`，卡片退化为文字标题。
+- 封面来源：作者提供或指定的封面优先；需要联网补电影、电视剧、动漫或书籍封面时，**优先从豆瓣找**，按片名／书名、年份、季数或版本核对条目。豆瓣没有合适图片或无法访问时，再用官方站点、出版社或 Wikipedia 等可靠来源。已有封面不因来源偏好自动替换；封面来源不改变上面的卡片 `href` 规则。
+- 豆瓣取图：从条目页封面进入海报／图片列表，再进对应图片详情，读取实际图片地址，优先选清晰的正式海报／书封和可访问的大图，不拿列表缩略图充当高清封面；用下载后的实际像素判断清晰度。可从条目页的 `#mainpic img` 或 `og:image` 定位封面，从图片详情读取大图 `src`，不猜作品 ID、图片 ID 或图片 URL。直接下载失败时可带对应豆瓣页面的 `Referer` 和浏览器 `User-Agent`；遇到登录、验证码或访问限制时说明并换可靠来源，不把抓取成功视为永久可用。
+- 下载到对应 `src/content/interests/<id>/` 下的短 ASCII 文件名（如 `movie/inside-out.jpg`），正文用相对路径引用走图片管线，不直接热链豆瓣图片。确认 HTTP 成功、文件非空，且能被图片解码器读取格式和宽高；扩展名与真实格式一致，保留源图，不手工压缩、缩放或转格式。默认横卡抓不到、超时或不可用可退回无封面卡片并说明；竖卡和方卡必须补齐封面，无法取得时报告条目未完成，不自动改成横卡或发布无封面陈列架。交接时附来源条目／图片页链接和实际图片尺寸。
+- 默认横卡的 `score`、`date` 只用作者给的分数、日期，未提供的属性就省略，不从观看状态、文件时间或当前日期推断；竖卡和方卡不填写这两个属性。将原作者／评论写入 `meta`，不替作者编造短评、作者或观看状态，没有原文时保留原来的状态文案。作者明确要求自动滚动时，这一排每张都写 `scroll="auto"`。
+- 抓取只发生在这次内容更新里，抓到的文件作为仓库内容存在；构建与 RSS 不会去抓网络。封面尽量选清晰但不过大的图，不要放进 `public/`。
+- 连续卡片写在同一个 Markdown 标题下，按作者给的顺序排列；一次新增多张时先补齐正文结构再统一校验。
+
+内容集合 schema／图片验证由 `pnpm check` 和 `pnpm build` 完成；轻量 Python 校验器目前只支持博客与友链，不假装能完整校验兴趣集合。
+
+---
+
+## 友链 `/friends/`
+
+### 卡片
+
+`src/content/friends/data.json`。先读完整份。
+
+必填：`id`、`name`、`link`、`desc`、`category`。`avatar`、`siteLabel`、`order` 有默认。
+
+- `id` 稳定、宜小写 slug；已有的不要改。
+- `link` 必须 http/https。没可靠头像就 `avatar: ""`。
+- `category` 只允许 `推荐`（单向收藏）或 `双向`（已交换友链）。新增友链时，用户未指定分类则默认放入双向；用户明确指定时按其要求填写。`order` 取全文件最大 order + 1，除非用户指定。
+- `desc` 短、具体。不要为美观重排数组；展示顺序是 `order` 再按中文名。
+
+```json
+{
+  "id": "example-blog",
+  "name": "Example Blog",
+  "link": "https://example.com/",
+  "avatar": "",
+  "desc": "一句话介绍。",
+  "category": "双向",
+  "siteLabel": "",
+  "order": 15
+}
+```
+
+```bash
+python3 blog-content-publisher-skill/scripts/validate_content.py --root . --friends
+```
+
+### 申请模板（右下角 friend.txt）
+
+站名、简介、链接、头像 URL 在 `src/components/views/FriendsApplyPanel.astro` 的 `friendInfo`。改「Name: …」只动这里，不要以为改 `SITE.title` 会同步。
+
+---
+
+## 顶栏（所有页面）
+
+`src/config.ts`：
+
+- 页面链接：`UI.internalNavs`（path / title / text）
+- 更多菜单中的友链／相册：`MORE_LINKS`。友链保持 `/friends/`，相册链接标为外链并显示 ↗；当前相册指向 `https://photos.wutongyu.site/`。
+- 顶栏 GitHub：`UI.socialLinks`，只留本仓库链接。和搜索、主题同属右侧工具组。
+- 站点名、描述、域名：`SITE`
+
+个人社交不在 `UI.socialLinks`。首页读取 `AUTHOR_LINKS`，关于正文独立维护作者希望展示的联系方式；若也展示同一账号，再同步该字段。个人 GitHub 指向主页，顶栏 GitHub 指向本仓库。首页名言／作者文案在 `BlogProfile`，品牌文案在 `NavBar`；不要以为修改 `SITE.title` 会同步所有正文文案。
+
+图标类名构建后若空白：首页身份图标由 `AUTHOR_LINKS`、拾趣菜单图标由 `INTEREST_ICONS` 自动加入 safelist；关于页独有图标才需检查 `unocss.config.ts`。关于页图标尺寸在 `public/shell.css` 的 `.about-social__icon`，本 skill 不改 CSS。
+
+---
+
+## 校验与交接
+
+改完先跑 `pnpm check`；文章或友链再跑上面的 `validate_content.py`，它只检查基础元数据，**不完整验证 schema、图片或封面**，并拦住正文里指向 `.md`／`.mdx` 的相对链接。内容、图片、分类或图标修改后，必须针对本次改动重新运行并成功完成 `pnpm build`，再运行 built 检查；不能用旧 `dist/` 或 dev 预览代替。站内链接能否打开、锚点是否有落点由 `pnpm test:built-markdown` 判定。
+
+发文章涉及订阅时，成功构建后运行 `pnpm test:built-markdown` 核对全文与资源。列表／内容结构或拾趣分类／图标修改运行 `pnpm test:built-restructure`；拾趣正文修改运行 `pnpm test:built-markdown`；分页修改运行 `pnpm test:built-pagination`。构建测试跟随当前配置和内容，不要求保留具体文章、友链名单、拾趣分类数量或观看状态。
+
+含实际 gallery／figure 布局、卡片、`:::excalidraw` 或 `:::blog-link` 的博客还要按上面的自动 dev 预览步骤交付文章链接，不能以 dev 预览替代上述内容构建校验。布局实现的单测与浏览器交互检查属于实现范围，不要求每次发文章重复执行。
+
+文章、关于、拾趣、项目、友链等内容数据不记入 `CHANGELOG.md`。只有这次改动同时改变了网页结构、交互或代码时，才把那部分结构或代码结果写入「未发布」；未发布条目不填写已发布版本或日期。本 skill 只改内容与配置，不新增阶段性报告、规格或操作指南。
+
+交接时写清：改了哪一页、文件路径、上线后的路由、博客是否草稿、本次重新构建与相关菜单／页面校验结果；新增拾趣分类另说明图标是否配置。未完成或失败的构建／检查明确注明，不称已验证。用户没说部署就不要部署。

@@ -1,0 +1,44 @@
+---
+import TocItem from '~/components/toc/TocItem.astro'
+import Link from '~/components/base/Link.astro'
+import type { TocHeading } from '~/utils/toc'
+
+interface Props {
+  headings: TocHeading[]
+}
+
+const { headings } = Astro.props
+---
+
+<nav id="toc-sidebar" class="desktop-toc" aria-label="Table of contents">
+  <Link
+    href="#skip-toc"
+    class="sr-only focus:(not-sr-only fixed start-1 top-1.5 op-20)"
+  >
+    Skip toc
+  </Link>
+  <ul class="desktop-toc__list">
+    {headings.map((heading) => (
+      <TocItem {heading} />
+    ))}
+  </ul>
+  <div id="skip-toc" class="hidden"></div>
+</nav>
+
+<style>
+  .desktop-toc {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-width: 0;
+    max-height: min(50vh, 28rem);
+    overflow: hidden;
+    font-size: calc(var(--blog-reading-size) * 0.9);
+  }
+
+  .desktop-toc__list {
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+  }
+</style>

@@ -1,0 +1,306 @@
+---
+import { getFilteredPosts } from '~/utils/data'
+import { buildTagSummary } from '~/utils/blog-tag-filter.js'
+import PageHeading from '~/components/base/PageHeading.astro'
+
+const tags = buildTagSummary(
+  (await getFilteredPosts('blogs')).map(({ data }) => data.tags)
+)
+---
+
+<section data-tag-directory aria-labelledby="tags-title">
+  <div class="tags-header">
+    <PageHeading
+      title="标签"
+      subtitle={`${tags.length} 个标签`}
+      id="tags-title"
+    />
+    <div class="tags-toolbar">
+      <div class="tags-selected" data-selected-status hidden>
+        <span data-selected-count></span>
+        <button type="button" data-clear-tags>
+          清空
+        </button>
+      </div>
+      <div class="tags-sort" role="group" aria-label="标签排序" hidden>
+        <button type="button" data-sort="count" aria-pressed="true">
+          按数量
+        </button>
+        <button type="button" data-sort="name" aria-pressed="false">
+          按名称
+        </button>
+      </div>
+    </div>
+  </div>
+  <div class="tags-list">
+    {tags.map(({ tag, count }, index) => (
+      <button
+        type="button"
+        data-tag-name={tag}
+        data-tag-rank={index}
+        aria-pressed="false"
+      >
+        <span>{tag}</span>
+        <span class="tags-count">{count}</span>
+      </button>
+    ))}
+  </div>
+  {tags.length === 0 && <p>暂无标签。</p>}
+</section>
+<style>
+  .tags-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 0.75rem 1rem;
+    margin-bottom: 1.4rem;
+  }
+  .tags-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .tags-selected {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+  }
+  .tags-selected[hidden] {
+    display: none;
+  }
+  .tags-selected span {
+    opacity: 0.55;
+  }
+  .tags-selected button {
+    padding: 0;
+    border: 0;
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+    cursor: pointer;
+  }
+  .tags-sort {
+    position: relative;
+    display: inline-grid;
+    grid-template-columns: repeat(2, 1fr);
+    isolation: isolate;
+    border: 1px solid color-mix(in srgb, var(--c-text) 18%, transparent);
+    border-radius: 6px;
+    padding: 2px;
+    background: var(--c-bg);
+  }
+  .tags-sort[hidden] {
+    display: none;
+  }
+  .tags-sort::before {
+    content: '';
+    position: absolute;
+    inset: 2px auto 2px 2px;
+    width: calc((100% - 4px) / 2);
+    z-index: -1;
+    border-radius: 4px;
+    background: var(--c-text);
+    transition: transform 220ms ease;
+  }
+  .tags-sort:has([data-sort='name'][aria-pressed='true'])::before {
+    transform: translateX(100%);
+  }
+  .tags-sort button {
+    padding: 0.22rem 0.55rem;
+    border-radius: 4px;
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: color 220ms ease;
+  }
+  .tags-sort button:not([aria-pressed='true']):hover {
+    background: color-mix(in srgb, var(--c-text) 14%, var(--c-bg));
+  }
+  .tags-sort [aria-pressed='true'],
+  .tags-sort [aria-pressed='true']:hover {
+    color: var(--c-bg);
+    background: transparent;
+  }
+  .tags-sort button:focus-visible {
+    outline: 2px solid var(--c-text);
+    outline-offset: 3px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tags-sort::before,
+    .tags-sort button {
+      transition: none;
+    }
+  }
+  .tags-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .tags-list button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.38rem;
+    max-width: 100%;
+    padding: 0.32rem 0.65rem;
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    font-size: 0.9375rem;
+    line-height: 1.4;
+    border: 1px solid color-mix(in srgb, var(--c-text) 12%, transparent);
+    border-radius: 7px;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+  .tags-list button:hover {
+    background: color-mix(in srgb, var(--c-text) 6%, transparent);
+  }
+  .tags-list button[aria-pressed='true'] {
+    border-color: var(--accent);
+    color: var(--c-bg);
+    background: var(--accent);
+  }
+  .tags-list button[aria-pressed='true']:hover {
+    background: var(--accent);
+  }
+  .tags-count {
+    color: var(--accent);
+    opacity: 0.85;
+    font-size: 0.75rem;
+  }
+  .tags-list button[aria-pressed='true'] .tags-count {
+    color: inherit;
+    opacity: 0.75;
+  }
+</style>
+<script>
+  import { parseBlogQuery, serializeBlogQuery } from '~/utils/blog-browser.js'
+
+  const FILTER_DELAY_MS = 140
+  let activeRoot: HTMLElement | undefined
+  let cleanup = () => undefined
+
+  const initializeTags = () => {
+    const root = document.querySelector<HTMLElement>('[data-tag-directory]')
+    if (!root || root === activeRoot) return
+    cleanup()
+    activeRoot = root
+    root.querySelector<HTMLElement>('.tags-sort')!.hidden = false
+    const list = root.querySelector<HTMLElement>('.tags-list')!
+    const buttons = Array.from(
+      list.querySelectorAll<HTMLButtonElement>('[data-tag-name]')
+    )
+    const selectedStatus = root.querySelector<HTMLElement>(
+      '[data-selected-status]'
+    )!
+    const selectedCount = root.querySelector<HTMLElement>(
+      '[data-selected-count]'
+    )!
+    const selected = new Set<string>()
+    let timer: number | undefined
+
+    const selectedTags = () =>
+      buttons
+        .map((button) => button.dataset.tagName!)
+        .filter((tag) => selected.has(tag))
+
+    const syncPressed = () => {
+      buttons.forEach((button) =>
+        button.setAttribute(
+          'aria-pressed',
+          String(selected.has(button.dataset.tagName!))
+        )
+      )
+      const count = selected.size
+      selectedStatus.hidden = count === 0
+      selectedCount.textContent = `${count} 个已选`
+    }
+
+    const syncFromUrl = () => {
+      selected.clear()
+      parseBlogQuery(location.search).tags.forEach((tag) => selected.add(tag))
+      syncPressed()
+    }
+
+    const commit = () => {
+      if (!root.isConnected) return
+      const next =
+        location.pathname +
+        serializeBlogQuery({ category: '', tags: selectedTags(), page: 1 })
+      const current = `${location.pathname}${location.search}`
+      if (next !== current) history.pushState(history.state, '', next)
+      document.dispatchEvent(new Event('blog:querychange'))
+    }
+
+    const queueCommit = () => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(commit, FILTER_DELAY_MS)
+    }
+
+    syncFromUrl()
+    root.querySelectorAll<HTMLButtonElement>('[data-sort]').forEach((button) =>
+      button.addEventListener('click', () => {
+        root
+          .querySelectorAll('[data-sort]')
+          .forEach((control) =>
+            control.setAttribute('aria-pressed', String(control === button))
+          )
+        buttons.sort((a, b) =>
+          button.dataset.sort === 'name'
+            ? a.dataset.tagName!.localeCompare(
+                b.dataset.tagName!,
+                'zh-Hans-CN',
+                { numeric: true, sensitivity: 'base' }
+              )
+            : Number(a.dataset.tagRank) - Number(b.dataset.tagRank)
+        )
+        list.append(...buttons)
+      })
+    )
+    buttons.forEach((button) =>
+      button.addEventListener('click', () => {
+        const tag = button.dataset.tagName
+        if (!tag) return
+        if (selected.has(tag)) selected.delete(tag)
+        else selected.add(tag)
+        syncPressed()
+        queueCommit()
+      })
+    )
+    root
+      .querySelector<HTMLButtonElement>('[data-clear-tags]')
+      ?.addEventListener('click', () => {
+        if (selected.size === 0) return
+        selected.clear()
+        syncPressed()
+        // 清空后「已选」区域会隐藏（“清空”按钮就在里面），不搬焦点的话
+        // 键盘用户会被丢到 body。落到第一个标签按钮上，位置稳定。
+        buttons[0]?.focus()
+        queueCommit()
+      })
+    window.addEventListener('popstate', syncFromUrl)
+    cleanup = () => {
+      window.clearTimeout(timer)
+      window.removeEventListener('popstate', syncFromUrl)
+      activeRoot = undefined
+    }
+  }
+
+  const teardownTags = () => {
+    cleanup()
+    cleanup = () => undefined
+    activeRoot = undefined
+  }
+
+  document.addEventListener('astro:before-swap', teardownTags)
+  document.addEventListener('astro:page-load', initializeTags)
+  initializeTags()
+</script>

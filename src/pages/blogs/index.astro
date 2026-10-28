@@ -1,0 +1,15 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro'
+import BlogIndexLayout from '~/layouts/BlogIndexLayout.astro'
+import ListView from '~/components/views/ListView.astro'
+---
+
+<BaseLayout
+  title="文稿"
+  description="赵博洋的 Agent、AI 产品与系统设计随笔"
+  bgType="dot"
+>
+  <BlogIndexLayout>
+    <ListView />
+  </BlogIndexLayout>
+</BaseLayout>

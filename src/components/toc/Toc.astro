@@ -1,0 +1,304 @@
+---
+import DesktopAside from '~/components/base/DesktopAside.astro'
+import MobileTocControl from '~/components/toc/MobileTocControl.astro'
+import { FEATURES } from '~/config'
+import { generateToc } from '~/utils/toc'
+import type { MarkdownHeading } from 'astro'
+
+interface Props {
+  headings: MarkdownHeading[]
+  enabled?: boolean
+}
+
+const { headings, enabled = true } = Astro.props
+const { toc } = FEATURES
+const tocHeadings =
+  enabled && Array.isArray(toc) && toc[0]
+    ? generateToc(headings, toc[1].minHeadingLevel, toc[1].maxHeadingLevel)
+    : []
+---
+
+{tocHeadings.length > 0 && (
+  <table-of-contents data-pagefind-ignore="all">
+    <DesktopAside headings={tocHeadings} />
+    <MobileTocControl headings={tocHeadings} />
+  </table-of-contents>
+)}
+
+<script>
+  import { pickActiveHeadingIndex } from '~/utils/toc-active'
+  import { predictNavVisibility } from '~/utils/nav-scroll.js'
+
+  class Toc extends HTMLElement {
+    #headingMapToc = new Map<Element, HTMLAnchorElement[]>()
+    #headings: Element[] = []
+    #currentActiveHeading: Element | null = null
+    #previousActiveLinks: HTMLAnchorElement[] = []
+    #frame = 0
+    #shiftObserver: ResizeObserver | null = null
+    #navObserver: MutationObserver | null = null
+
+    connectedCallback() {
+      this.#init()
+      this.#sync()
+      window.addEventListener('scroll', this.#schedule, { passive: true })
+      window.addEventListener('resize', this.#schedule)
+      this.addEventListener('click', this.#prepareAnchor)
+      this.addEventListener('toc-reveal', this.#onReveal)
+      const header = document.querySelector('[data-site-header]')
+      if (header) {
+        this.#navObserver = new MutationObserver(this.#schedule)
+        this.#navObserver.observe(header, {
+          attributes: true,
+          attributeFilter: ['data-scroll-hidden'],
+        })
+      }
+      document.fonts.ready.then(() => {
+        if (this.isConnected) this.#schedule()
+      })
+      // Lazy images and webfonts move the headings without scrolling. Without
+      // this, the highlight keeps pointing at wherever the reader was before
+      // the shift until they happen to scroll again. Observed on <body>: the
+      // root element stays viewport-tall and never reports the growth.
+      this.#shiftObserver = new ResizeObserver(this.#schedule)
+      this.#shiftObserver.observe(document.body)
+    }
+
+    disconnectedCallback() {
+      this.#cleanup()
+    }
+
+    #init = () => {
+      const tocLinks = this.#getElements(
+        '[data-toc-link]',
+        false
+      ) as HTMLAnchorElement[]
+      this.#generateHeadingMapToc(tocLinks)
+      this.#headings = this.#orderedHeadings()
+    }
+
+    #schedule = () => {
+      if (this.#frame) return
+      this.#frame = requestAnimationFrame(() => {
+        this.#frame = 0
+        this.#sync()
+      })
+    }
+
+    #onReveal = () => {
+      this.#sync()
+      for (const link of this.#previousActiveLinks) this.#revealLink(link)
+    }
+
+    #sync = () => {
+      this.#setAnchorOffset(this.#readingOffset())
+      const laidOut = this.#headings.filter(
+        (heading) => heading.getClientRects().length > 0
+      )
+      if (!laidOut.length) return
+
+      const index = pickActiveHeadingIndex(
+        laidOut.map((heading) => heading.getBoundingClientRect().top),
+        this.#activationLine(laidOut[0]),
+        this.#isAtBottom()
+      )
+      const next = laidOut[index]
+      if (!next) return
+      this.#setActive(next)
+    }
+
+    #setActive = (heading: Element) => {
+      if (heading === this.#currentActiveHeading) return
+
+      const newLinks = this.#headingMapToc.get(heading) ?? []
+      for (const tocLinkEl of this.#previousActiveLinks) {
+        tocLinkEl.removeAttribute('aria-current')
+      }
+      for (const tocLinkEl of newLinks) {
+        tocLinkEl.setAttribute('aria-current', 'true')
+        this.#revealLink(tocLinkEl)
+      }
+
+      this.#currentActiveHeading = heading
+      this.#previousActiveLinks = newLinks
+    }
+
+    #visibleHeaderOffset = () => {
+      const header = document.querySelector('[data-site-header]')
+      if (!(header instanceof HTMLElement)) return 20
+      const top =
+        parseFloat(
+          getComputedStyle(header).getPropertyValue('--nav-visible-top')
+        ) || 0
+      return top + header.getBoundingClientRect().height + 12
+    }
+
+    #readingOffset = () =>
+      document.querySelector('[data-site-header][data-scroll-hidden]')
+        ? 20
+        : this.#visibleHeaderOffset()
+
+    #setAnchorOffset = (offset: number) => {
+      document.documentElement.style.setProperty(
+        '--post-anchor-offset',
+        `${offset}px`
+      )
+    }
+
+    #prepareAnchor = (event: MouseEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      )
+        return
+      const link =
+        event.target instanceof Element
+          ? event.target.closest<HTMLAnchorElement>('[data-toc-link]')
+          : null
+      const heading = this.#headings.find(
+        (node) => link && this.#headingMapToc.get(node)?.includes(link)
+      )
+      if (!heading) return
+      const currentOffset = this.#readingOffset()
+      const top = heading.getBoundingClientRect().top + window.scrollY
+      const targetY = Math.max(
+        0,
+        Math.min(
+          top - currentOffset,
+          document.documentElement.scrollHeight - window.innerHeight
+        )
+      )
+      // Use the navigation's own scroll rule, then let the normal fragment
+      // navigation consume the margin. No second scroll or custom history.
+      this.#setAnchorOffset(
+        predictNavVisibility(targetY) ? 20 : this.#visibleHeaderOffset()
+      )
+    }
+
+    #activationLine = (heading: Element) => {
+      const margin = parseFloat(getComputedStyle(heading).scrollMarginTop)
+      return (Number.isFinite(margin) ? margin : this.#readingOffset()) + 1
+    }
+
+    #isAtBottom = () => {
+      const maxScroll =
+        document.documentElement.scrollHeight - window.innerHeight
+      if (maxScroll <= 2) return false
+      return window.scrollY >= maxScroll - 2
+    }
+
+    #revealLink = (link: HTMLAnchorElement) => {
+      const list = this.#scrollContainerOf(link)
+      if (!list || !this.#isListShown(list)) return
+
+      const listRect = list.getBoundingClientRect()
+      const linkRect = link.getBoundingClientRect()
+      const pad = 8
+      if (
+        linkRect.top >= listRect.top + pad &&
+        linkRect.bottom <= listRect.bottom - pad
+      ) {
+        return
+      }
+
+      const top =
+        linkRect.top -
+        listRect.top +
+        list.scrollTop -
+        (list.clientHeight - linkRect.height) / 2
+      const reduce = window.matchMedia(
+        '(prefers-reduced-motion: reduce)'
+      ).matches
+      list.scrollTo({
+        top: Math.max(0, top),
+        behavior: reduce ? 'auto' : 'smooth',
+      })
+    }
+
+    /**
+     * The nearest scrollable ancestor, not the nearest `ul`: a nested item's
+     * own `ul` does not scroll, so centering against it would silently do
+     * nothing and leave the highlight off screen. Returns null when nothing
+     * scrolls, i.e. every item already fits.
+     */
+    #scrollContainerOf = (el: Element) => {
+      let node: Element | null = el.parentElement
+      while (node && node !== this) {
+        if (node instanceof HTMLElement) {
+          const { overflowY } = getComputedStyle(node)
+          if (
+            (overflowY === 'auto' || overflowY === 'scroll') &&
+            node.scrollHeight > node.clientHeight
+          ) {
+            return node
+          }
+        }
+        node = node.parentElement
+      }
+      return null
+    }
+
+    #isListShown = (list: HTMLElement) => {
+      if (list.closest('[hidden]')) return false
+      const style = getComputedStyle(list)
+      return (
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        list.clientHeight > 0
+      )
+    }
+
+    #getElements = (selector: string, fromDocument = true) =>
+      fromDocument
+        ? Array.from(document.querySelectorAll(selector))
+        : Array.from(this.querySelectorAll(selector))
+
+    #generateHeadingMapToc = (tocLinks: HTMLAnchorElement[]) => {
+      for (const link of tocLinks) {
+        const { hash } = new URL(link.href)
+        const id = decodeURIComponent(hash.replace(/^#/, ''))
+        const headingEl = document.getElementById(id)
+
+        if (!headingEl) continue
+        if (this.#headingMapToc.has(headingEl))
+          this.#headingMapToc.get(headingEl)?.push(link)
+        else this.#headingMapToc.set(headingEl, [link])
+      }
+    }
+
+    #orderedHeadings = () =>
+      [...this.#headingMapToc.keys()].sort((a, b) => {
+        if (a === b) return 0
+        const pos = a.compareDocumentPosition(b)
+        if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1
+        if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1
+        return 0
+      })
+
+    #cleanup = () => {
+      if (this.#frame) cancelAnimationFrame(this.#frame)
+      this.#frame = 0
+      window.removeEventListener('scroll', this.#schedule)
+      window.removeEventListener('resize', this.#schedule)
+      this.removeEventListener('click', this.#prepareAnchor)
+      this.removeEventListener('toc-reveal', this.#onReveal)
+      this.#shiftObserver?.disconnect()
+      this.#shiftObserver = null
+      this.#navObserver?.disconnect()
+      this.#navObserver = null
+      document.documentElement.style.removeProperty('--post-anchor-offset')
+      this.#headingMapToc.clear()
+      this.#headings = []
+      this.#currentActiveHeading = null
+      this.#previousActiveLinks = []
+    }
+  }
+
+  if (!customElements.get('table-of-contents')) {
+    customElements.define('table-of-contents', Toc)
+  }
+</script>

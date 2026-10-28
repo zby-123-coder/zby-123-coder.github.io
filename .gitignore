@@ -1,0 +1,43 @@
+# build output
+dist/
+
+# generated types
+.astro/
+
+# dependencies
+node_modules/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# environment variables
+.env
+.env.production
+
+# macOS-specific files
+.DS_Store
+
+# jetbrains setting folder
+.idea/
+
+# eslint cache
+.eslintcache
+
+# local archive
+.local
+
+.pnpm-store
+
+.pi
+
+# obsidian vault config
+.obsidian/
+
+# 由 astro-media-sync 从 src/ 镜像出来的视频/音频
+public/_media/
+
+# Excalidraw 字体（由 media-sync 从 node_modules 同步）
+public/excalidraw-assets/

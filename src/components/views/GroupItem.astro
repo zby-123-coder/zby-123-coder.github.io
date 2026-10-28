@@ -1,0 +1,619 @@
+---
+import { UI } from '~/config'
+
+export interface GroupItemData {
+  id: string
+  link: string
+  desc: string
+  summary: string
+  bullets: string[]
+  mechanisms: string[]
+  evidence: string
+  role: string
+  icon?: string
+}
+
+interface Props {
+  items: GroupItemData[]
+}
+
+const { items } = Astro.props
+const { showGroupItemColorOnHover } = UI.groupView
+---
+
+<div class="group-grid" data-project-grid>
+  {
+    items.map((item) => {
+      const projectKey = encodeURIComponent(item.id).replace(/%/g, '')
+      const dialogId = `project-dialog-${projectKey}`
+      const peekId = `project-peek-${projectKey}`
+      return (
+        <article class="group-project">
+          <button
+            type="button"
+            class="group-card"
+            data-project-open={dialogId}
+            aria-haspopup="dialog"
+            aria-controls={dialogId}
+            aria-describedby={peekId}
+          >
+            {item.icon && (
+              <div class="group-card__icon-wrap" aria-hidden="true">
+                <div
+                  class={`group-card__icon ${item.icon}`}
+                  data-show-color={showGroupItemColorOnHover ? '' : undefined}
+                />
+              </div>
+            )}
+            <div class="group-card__body">
+              <div class="group-card__title-row">
+                <span class="group-card__title">{item.id}</span>
+                <span class="group-card__open" aria-hidden="true">↗</span>
+              </div>
+              <div class="group-card__desc">{item.desc}</div>
+              <span class="group-card__instruction">
+                悬浮看亮点 · 点击打开档案
+              </span>
+            </div>
+          </button>
+
+          <aside id={peekId} class="project-peek" role="tooltip">
+            <div class="project-peek__head">
+              <span>项目亮点</span>
+              <span aria-hidden="true">01—03</span>
+            </div>
+            <ul>
+              {item.bullets.slice(0, 3).map((bullet) => (
+                <li>{bullet}</li>
+              ))}
+            </ul>
+            <p>点击展开完整方案、技术机制与证据边界。</p>
+          </aside>
+
+          <dialog
+            id={dialogId}
+            class="project-dialog"
+            aria-labelledby={`${dialogId}-title`}
+            aria-describedby={`${dialogId}-summary`}
+          >
+            <div class="project-dialog__shell">
+              <header class="project-dialog__header">
+                <div>
+                  <p class="project-dialog__eyebrow">PROJECT DOSSIER</p>
+                  <h2 id={`${dialogId}-title`}>{item.id}</h2>
+                  {item.role && <p class="project-dialog__role">{item.role}</p>}
+                </div>
+                <button
+                  type="button"
+                  class="project-dialog__close"
+                  data-project-close={dialogId}
+                  aria-label={`关闭${item.id}项目档案`}
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </header>
+
+              <p id={`${dialogId}-summary`} class="project-dialog__summary">
+                {item.summary || item.desc}
+              </p>
+
+              <section class="project-dialog__section">
+                <div class="project-dialog__section-head">
+                  <span>01</span>
+                  <h3>履历式项目亮点</h3>
+                </div>
+                <ul class="project-dialog__bullets">
+                  {item.bullets.map((bullet) => (
+                    <li>{bullet}</li>
+                  ))}
+                </ul>
+              </section>
+
+              {item.mechanisms.length > 0 && (
+                <section class="project-dialog__section">
+                  <div class="project-dialog__section-head">
+                    <span>02</span>
+                    <h3>关键机制与产品判断</h3>
+                  </div>
+                  <ul class="project-dialog__mechanisms">
+                    {item.mechanisms.map((mechanism) => (
+                      <li>{mechanism}</li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {item.evidence && (
+                <section class="project-dialog__evidence">
+                  <span>证据与边界</span>
+                  <p>{item.evidence}</p>
+                </section>
+              )}
+
+              <footer class="project-dialog__footer">
+                <span>想核对实现、测试或代码索引时，再继续向下。</span>
+                <a
+                  class="project-dialog__github"
+                  href={item.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  查看 GitHub / 源码索引 <span aria-hidden="true">↗</span>
+                </a>
+              </footer>
+            </div>
+          </dialog>
+        </article>
+      )
+    })
+  }
+</div>
+
+<script>
+  const bindProjectDialogs = () => {
+    document
+      .querySelectorAll<HTMLButtonElement>('[data-project-open]')
+      .forEach((button) => {
+        if (button.dataset.projectBound) return
+        button.dataset.projectBound = 'true'
+
+        const dialogId = button.dataset.projectOpen
+        const dialog = dialogId
+          ? document.getElementById(dialogId)
+          : null
+        if (!(dialog instanceof HTMLDialogElement)) return
+
+        const restoreFocus = () => {
+          requestAnimationFrame(() => {
+            if (button.isConnected) button.focus({ preventScroll: true })
+          })
+        }
+
+        button.addEventListener('click', () => {
+          if (!dialog.open) dialog.showModal()
+        })
+
+        dialog
+          .querySelectorAll<HTMLButtonElement>('[data-project-close]')
+          .forEach((closeButton) => {
+            closeButton.addEventListener('click', () => dialog.close())
+          })
+
+        dialog.addEventListener('click', (event) => {
+          if (event.target === dialog) dialog.close()
+        })
+        dialog.addEventListener('close', restoreFocus)
+      })
+  }
+
+  document.addEventListener('astro:page-load', bindProjectDialogs)
+  bindProjectDialogs()
+</script>
+
+<style>
+  .group-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin: 0;
+    max-width: 100%;
+  }
+
+  .group-project {
+    position: relative;
+    min-width: 0;
+  }
+
+  .group-card {
+    width: 100%;
+    appearance: none;
+    display: flex;
+    align-items: flex-start;
+    min-width: 0;
+    padding: 0.75rem 0.875rem;
+    border: 0;
+    border-radius: 0.625rem;
+    background: #f0f0f0;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+    transition:
+      background-color 0.2s ease,
+      box-shadow 0.2s ease,
+      transform 0.2s ease;
+  }
+
+  .group-card:hover,
+  .group-card:focus-visible {
+    background: #e8e8e8;
+    box-shadow: 0 0.7rem 1.7rem color-mix(in srgb, var(--accent) 14%, transparent);
+    transform: translateY(-1px);
+  }
+
+  :global(.dark) .group-card {
+    background: #ffffff14;
+  }
+
+  :global(.dark) .group-card:hover,
+  :global(.dark) .group-card:focus-visible {
+    background: #ffffff24;
+  }
+
+  .group-card__icon-wrap {
+    flex: 0 0 auto;
+    padding-top: 0.125rem;
+    padding-inline-end: 0.75rem;
+  }
+
+  .group-card__icon {
+    line-height: 1.5rem;
+    font-size: 1.25rem;
+    opacity: 0.5;
+    filter: saturate(0);
+    transition:
+      filter 0.3s ease,
+      opacity 0.3s ease;
+  }
+
+  .group-card:hover .group-card__icon[data-show-color] {
+    filter: saturate(1);
+  }
+
+  .group-card__body {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .group-card__title-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .group-card__title {
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+
+  .group-card__open {
+    color: var(--accent);
+    font-size: 0.95rem;
+    opacity: 0;
+    transform: translate(-0.25rem, 0.25rem);
+    transition:
+      opacity 0.2s ease,
+      transform 0.2s ease;
+  }
+
+  .group-card:is(:hover, :focus-visible) .group-card__open {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+
+  .group-card__desc {
+    margin-top: 0.125rem;
+    color: color-mix(in srgb, var(--c-text) 65%, transparent);
+    font-size: 0.875rem;
+    font-weight: 400;
+    line-height: 1.4;
+  }
+
+  .group-card__instruction {
+    display: block;
+    margin-top: 0.55rem;
+    color: color-mix(in srgb, var(--c-text) 48%, transparent);
+    font-size: 0.7rem;
+    letter-spacing: 0.02em;
+  }
+
+  .project-peek {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + 0.5rem);
+    left: 0.35rem;
+    width: min(31rem, calc(200% - 0.7rem));
+    padding: 0.85rem 0.95rem 0.9rem;
+    border: 1px solid color-mix(in srgb, var(--c-text) 17%, transparent);
+    border-radius: 0.7rem;
+    background: color-mix(in srgb, var(--c-bg) 96%, var(--c-text));
+    box-shadow: 0 1.1rem 2.4rem color-mix(in srgb, #000 24%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-0.35rem) scale(0.985);
+    transition:
+      opacity 0.18s ease,
+      transform 0.18s ease;
+  }
+
+  .group-project:is(:hover, :focus-within) .project-peek {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  .project-peek__head {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    color: var(--accent);
+    font-family: var(--font-heading);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+  }
+
+  .project-peek ul {
+    display: grid;
+    gap: 0.45rem;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .project-peek li {
+    position: relative;
+    padding-left: 0.9rem;
+    color: color-mix(in srgb, var(--c-text) 84%, transparent);
+    font-size: 0.75rem;
+    line-height: 1.55;
+  }
+
+  .project-peek li::before {
+    position: absolute;
+    top: 0.53em;
+    left: 0;
+    width: 0.34rem;
+    height: 0.34rem;
+    border-radius: 50%;
+    background: var(--accent);
+    content: '';
+  }
+
+  .project-peek p {
+    margin: 0.75rem 0 0;
+    color: color-mix(in srgb, var(--c-text) 52%, transparent);
+    font-size: 0.7rem;
+    line-height: 1.5;
+  }
+
+  .project-dialog {
+    width: min(48rem, calc(100vw - 2rem));
+    max-height: min(48rem, calc(100dvh - 2rem));
+    margin: auto;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--c-text) 16%, transparent);
+    border-radius: 1rem;
+    background: var(--c-bg);
+    color: var(--c-text);
+    box-shadow: 0 1.75rem 5rem rgb(0 0 0 / 36%);
+  }
+
+  .project-dialog::backdrop {
+    background: rgb(0 0 0 / 52%);
+    backdrop-filter: blur(4px);
+  }
+
+  .project-dialog__shell {
+    max-height: inherit;
+    overflow: auto;
+    padding: clamp(1.15rem, 3vw, 2.2rem);
+  }
+
+  .project-dialog__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1.5rem;
+  }
+
+  .project-dialog__eyebrow {
+    margin: 0;
+    color: var(--accent);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+  }
+
+  .project-dialog h2 {
+    margin: 0.35rem 0 0;
+    font-family: var(--font-heading);
+    font-size: clamp(1.45rem, 3.5vw, 2.25rem);
+    font-weight: 400;
+    line-height: 1.2;
+  }
+
+  .project-dialog__role {
+    margin: 0.6rem 0 0;
+    color: color-mix(in srgb, var(--c-text) 58%, transparent);
+    font-size: 0.78rem;
+  }
+
+  .project-dialog__close {
+    display: grid;
+    width: 2.2rem;
+    height: 2.2rem;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 1px solid color-mix(in srgb, var(--c-text) 15%, transparent);
+    border-radius: 50%;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 1.45rem;
+    line-height: 1;
+    transition:
+      background-color 0.18s ease,
+      color 0.18s ease;
+  }
+
+  .project-dialog__close:hover,
+  .project-dialog__close:focus-visible {
+    background: var(--accent);
+    color: var(--c-bg);
+  }
+
+  .project-dialog__summary {
+    margin: 1.35rem 0 0;
+    color: color-mix(in srgb, var(--c-text) 82%, transparent);
+    font-size: 0.98rem;
+    line-height: 1.82;
+  }
+
+  .project-dialog__section {
+    margin-top: 1.7rem;
+    padding-top: 1.35rem;
+    border-top: 1px solid color-mix(in srgb, var(--c-text) 10%, transparent);
+  }
+
+  .project-dialog__section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+  }
+
+  .project-dialog__section-head > span {
+    color: var(--accent);
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+  }
+
+  .project-dialog h3 {
+    margin: 0;
+    font-size: 0.94rem;
+    font-weight: 650;
+  }
+
+  .project-dialog__bullets,
+  .project-dialog__mechanisms {
+    display: grid;
+    gap: 0.8rem;
+    margin: 1rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .project-dialog__bullets li,
+  .project-dialog__mechanisms li {
+    position: relative;
+    padding-left: 1.1rem;
+    color: color-mix(in srgb, var(--c-text) 78%, transparent);
+    font-size: 0.88rem;
+    line-height: 1.7;
+  }
+
+  .project-dialog__bullets li::before {
+    position: absolute;
+    top: 0.7em;
+    left: 0;
+    width: 0.42rem;
+    height: 0.42rem;
+    border-radius: 50%;
+    background: var(--accent);
+    content: '';
+  }
+
+  .project-dialog__mechanisms li::before {
+    position: absolute;
+    top: 0.7em;
+    left: 0;
+    width: 0.42rem;
+    height: 1px;
+    background: var(--accent);
+    content: '';
+  }
+
+  .project-dialog__evidence {
+    margin-top: 1.7rem;
+    padding: 0.95rem 1rem;
+    border-left: 2px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+  }
+
+  .project-dialog__evidence > span {
+    color: var(--accent);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+  }
+
+  .project-dialog__evidence p {
+    margin: 0.5rem 0 0;
+    color: color-mix(in srgb, var(--c-text) 70%, transparent);
+    font-size: 0.78rem;
+    line-height: 1.65;
+  }
+
+  .project-dialog__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 1.7rem;
+    padding-top: 1.2rem;
+    border-top: 1px solid color-mix(in srgb, var(--c-text) 10%, transparent);
+    color: color-mix(in srgb, var(--c-text) 54%, transparent);
+    font-size: 0.74rem;
+    line-height: 1.5;
+  }
+
+  .project-dialog__github {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--c-text) 22%, transparent);
+    border-radius: 0.45rem;
+    color: inherit;
+    font-size: 0.78rem;
+    text-decoration: none;
+    transition:
+      background-color 0.18s ease,
+      border-color 0.18s ease;
+  }
+
+  .project-dialog__github:hover,
+  .project-dialog__github:focus-visible {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+
+  @media (max-width: 767.9px) {
+    .group-grid {
+      grid-template-columns: 1fr;
+      gap: 0.4rem;
+    }
+
+    .group-card {
+      padding: 0.72rem;
+    }
+
+    .group-card__title {
+      font-size: 0.9375rem;
+    }
+
+    .group-card__desc {
+      font-size: 0.8125rem;
+    }
+
+    .project-peek {
+      display: none;
+    }
+
+    .project-dialog__footer {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .group-card,
+    .group-card__open,
+    .project-peek,
+    .project-dialog__close,
+    .project-dialog__github {
+      transition: none;
+    }
+  }
+</style>

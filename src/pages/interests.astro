@@ -1,0 +1,15 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro'
+import BlogIndexLayout from '~/layouts/BlogIndexLayout.astro'
+import InterestsView from '~/components/views/InterestsView.astro'
+---
+
+<BaseLayout
+  title="生活"
+  description="照片、游戏、阅读与工具：还在持续收集的私人记录。"
+  bgType="dot"
+>
+  <BlogIndexLayout>
+    <InterestsView />
+  </BlogIndexLayout>
+</BaseLayout>

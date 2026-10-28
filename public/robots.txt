@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://zby-123-coder.github.io/sitemap-index.xml

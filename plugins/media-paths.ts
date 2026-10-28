@@ -1,0 +1,322 @@
+import { lstatSync, realpathSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+import { SITE } from '../src/config.ts'
+
+/**
+ * 正文媒体引用的路径规则。
+ *
+ * 环境里有两个「根」，作者不需要知道它们的区别，但代码必须知道：
+ *
+ * - Typora 按 **Markdown 文件所在目录** 解析相对路径。所以作者把 `demo.mp4`
+ *   放在 `foo.md` 旁边，写 `./demo.mp4`，在 Typora 里能预览。
+ * - 站点按 **URL** 解析。文章 `src/content/blogs/<id>.md` 的 URL 是
+ *   `/blogs/<id>/`，比源文件目录多一层 `<id>/`，所以 `./demo.mp4` 在站上必然 404。
+ *
+ * 本模块负责把前者翻译成后者：`src/` 目录树镜像到 `public/_media/`
+ * （由 `astro-media-sync.ts` 落盘），相对引用改写成 `/_media/<相对 src/ 的路径>`。
+ * 改写、镜像、校验都调用这里的函数，不各自推断映射或协议白名单。
+ *
+ * 为什么音视频与绘图源走镜像、图片不走：图片有 Markdown 语法 `![](./x.png)`，由 Astro 图片管线
+ * 处理（优化 + srcset），源文件在 `dist/_astro/` 里已有一份。镜像整棵 `src/`
+ * 的图片到 `public/_media/` 会重复产物。镜像覆盖视频/音频与 `.excalidraw`／`.excalidrawlib`，供 HTML、链接与 Excalidraw
+ * 源文件引用；图片继续交给 Astro 图片管线，预览图不进 `_media`。
+ */
+
+/** 需要镜像到 `public/_media/` 的音视频扩展名。图片不在其中，见模块注释。 */
+export const MEDIA_EXTENSIONS = new Set([
+  '.mp4',
+  '.webm',
+  '.ogv',
+  '.mov',
+  '.m4v',
+  '.mp3',
+  '.m4a',
+  '.ogg',
+  '.oga',
+  '.wav',
+  '.flac',
+])
+
+/**
+ * Excalidraw 源文件扩展名。不是图片，不能走 Astro 图片管线；与音视频一样镜像到
+ * `/_media/`，预览 SVG／PNG 仍用相对图片语法。
+ */
+export const DRAWING_EXTENSIONS = new Set(['.excalidraw', '.excalidrawlib'])
+
+/** 实际镜像到 `public/_media/` 的全部扩展名（音视频 + 绘图源）。不含图片。 */
+export const MIRROR_EXTENSIONS = new Set([
+  ...MEDIA_EXTENSIONS,
+  ...DRAWING_EXTENSIONS,
+])
+
+/**
+ * `src` 必须可服务的元素。渲染期改写与产物校验都从这里取，
+ * 避免两边各自维护一份列表而漏掉某个标签。
+ *
+ * 注意 `track` 也在列表里，但字幕文件（`.vtt`）不能被镜像 —— 它的扩展名不在
+ * `MEDIA_EXTENSIONS` 里，所以相对路径的字幕会报错，要放进 `public/` 用站内绝对路径
+ * 引用。放在这里是为了让 `file:` 这类地址至少会被拦下。
+ */
+export const MEDIA_SRC_ELEMENTS = ['video', 'audio', 'source', 'track']
+
+/** 镜像源：项目根下的 `src/` */
+const MEDIA_SOURCE_ROOT = fileURLToPath(new URL('../src/', import.meta.url))
+
+/** 镜像目标：`public/` 会被 Astro 原样拷进产物根 */
+const MEDIA_PUBLIC_DIR = fileURLToPath(
+  new URL('../public/_media/', import.meta.url)
+)
+
+/** 镜像后的 URL 前缀。跟随站点 base，子路径部署时才不会请求到错误位置。 */
+export const MEDIA_URL_PREFIX = `${SITE.base.replace(/\/+$/, '')}/_media/`
+
+/** 镜像的两个根。默认取真实项目路径；测试注入临时目录，以便隔离。 */
+export interface MediaRoots {
+  sourceRoot: string
+  publicDir: string
+}
+
+export const MEDIA_ROOTS: MediaRoots = {
+  sourceRoot: MEDIA_SOURCE_ROOT,
+  publicDir: MEDIA_PUBLIC_DIR,
+}
+
+/** `data:` 之外还允许出现的协议名（不含冒号）：只有 HTTP(S) 能在站上打开 */
+const HTTP_SCHEME = /^https?$/i
+const SCHEME = /^([a-z][a-z0-9+.-]*):/i
+
+/** 站上能直接打开的地址类型。渲染期与产物校验共用这一套判断。 */
+type MediaUrlKind =
+  /** `http(s)://` 或 `//host/…`：外链 */
+  | { kind: 'external' }
+  /** `/…`：作者自己放进 `public/` */
+  | { kind: 'rooted' }
+  /** `data:`：内容被内联成字符串，没有文件可服务 */
+  | { kind: 'inline' }
+  /** HTTP(S) 或协议相对地址缺少有效 authority，不能作为外链 */
+  | { kind: 'invalid' }
+  /** 其它协议（`file:`、`blob:` 等）：浏览器在站上打不开 */
+  | { kind: 'unsupported'; scheme: string }
+  /** 其余一律按相对于 Markdown 文件的路径处理 */
+  | { kind: 'relative' }
+
+/** 一条媒体引用的判定结果：站点级地址分类，或相对路径的两种去向 */
+type MediaRef =
+  | Exclude<MediaUrlKind, { kind: 'relative' }>
+  /** 相对路径且落在源根下：可镜像，给出源文件和含 query/fragment 的目标 URL */
+  | { kind: 'local'; file: string; url: string }
+  /** 相对路径但逃出了源根：镜像不到，无法服务 */
+  | { kind: 'outside'; file: string }
+
+/** 与浏览器 URL 预处理一致：去首尾 C0/空格，再删除所有 tab、CR、LF。 */
+function normalizeMediaUrl(value: string): string {
+  // URL 标准要求明确匹配 C0 控制字符。
+  // eslint-disable-next-line no-control-regex
+  const trimmed = value.replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, '')
+  return trimmed.replace(/[\t\r\n]/g, '')
+}
+
+/** 只按协议分类，不涉及文件系统。渲染期与产物校验都调用它。 */
+export function classifyMediaUrl(rawSrc: string): MediaUrlKind {
+  const src = normalizeMediaUrl(rawSrc)
+
+  if (/^data:/i.test(src)) return { kind: 'inline' }
+  const scheme = SCHEME.exec(src)?.[1]
+  if (src.startsWith('//') || (scheme && HTTP_SCHEME.test(scheme))) {
+    // URL 会容忍 https:clip.mp4 等缺少 authority 的写法；这里不能把它们当外链。
+    if (!/^(?:https?:)?\/\/[^/\\?#]+/i.test(src)) return { kind: 'invalid' }
+    try {
+      const url = new URL(src.startsWith('//') ? `https:${src}` : src)
+      return url.hostname ? { kind: 'external' } : { kind: 'invalid' }
+    } catch {
+      return { kind: 'invalid' }
+    }
+  }
+  if (scheme) return { kind: 'unsupported', scheme: scheme.toLowerCase() }
+
+  if (src.startsWith('/')) return { kind: 'rooted' }
+  return { kind: 'relative' }
+}
+
+/** URL 路径段里可以原样出现的字符：RFC 3986 的 `pchar`，去掉必须转义的 `%`。 */
+const PATH_SEGMENT_SAFE = /^[A-Za-z0-9\-._~!$&'()*+,;=:@]$/
+
+/**
+ * 作者写的引用 → 他想引用的文件名。逐段 `decodeURIComponent`：把 `%20`、`%23`、
+ * `%25` 都还原成真实字符，得到的是文件在磁盘上的名字（作者意图）。
+ * 用它去找文件、判断扩展名与「文件名里有没有取不到的字符」。
+ */
+export function decodeRefPath(value: string): string {
+  return value
+    .split('/')
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment)
+      } catch {
+        return segment
+      }
+    })
+    .join('/')
+}
+
+/**
+ * 站上请求的 URL 路径 → 静态层会去找的文件名，与 `decodeURI` 同语义：
+ * 还原空格、`%`、非 ASCII，**不还原**保留字符（`&`、`+`、`#`、`?`、`:`…）。
+ *
+ * 产物守卫必须用它，不能用 `decodeRefPath`：后者会把 `%23` 解回 `#`，于是守卫找到文件、
+ * 服务器却按字面名 `%23` 去找，守卫就放行了一个站上 404 的引用。
+ * 反过来也不能把 `decodeRefPath` 换成它，那会让「文件名不可用」的诊断退化成「文件缺失」。
+ * 两者分别对应「作者想要哪个文件」和「站点实际能不能取到」，都只有一处实现。
+ */
+export function decodeServedPath(value: string): string {
+  return value
+    .split('/')
+    .map((segment) => {
+      try {
+        return decodeURI(segment)
+      } catch {
+        return segment
+      }
+    })
+    .join('/')
+}
+
+/**
+ * 逐段编码成 URL 里的写法，只转义必须转义的字符（`%`、`#`、`?`、空格、非 ASCII）。
+ * 不能整段用 `encodeURIComponent`：它会把 `&`、`+`、`,`、`:` 也写成 `%26` 之类，
+ * 而静态层按 `decodeURI` 语义不还原这些字符，站上就找不到文件了。
+ */
+function encodeMediaPath(value: string): string {
+  return value
+    .split('/')
+    .map((segment) =>
+      [...segment]
+        .map((character) =>
+          PATH_SEGMENT_SAFE.test(character)
+            ? character
+            : encodeURIComponent(character)
+        )
+        .join('')
+    )
+    .join('/')
+}
+
+/**
+ * 相对路径是否指向根之内。`..` 只有作为**路径段**才算越界：
+ * 不能用 `startsWith('..')`，它会把根目录下名叫 `..clip.mp4` 的真实文件判成越界。
+ * 这正是三个映射函数与枚举步调不一致的原因：同一个文件相对源根是
+ * `content/blogs/..clip.mp4`（放行），相对所在目录却是 `..clip.mp4`（拒绝），
+ * 于是渲染通过、镜像没做、站上 404。
+ */
+function isInsideRelative(relative: string): boolean {
+  return (
+    relative !== '' &&
+    relative !== '..' &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  )
+}
+
+/**
+ * 一个字符能否放进 URL 路径段，并且被静态层还原成文件名。
+ *
+ * 两条出路：要么它本来就可以原样写在路径里（`pchar`），要么它必须转义、而静态层
+ * 会把它解回来。两条都不满足的字符，含它的文件与目录名在站上取不到。
+ * 判据直接由编码/解码规则推导，不手写字符表 —— 改编码就自动跟着改。
+ */
+const isServableCharacter = (character: string): boolean => {
+  if (PATH_SEGMENT_SAFE.test(character)) return true
+  try {
+    return decodeURI(encodeURIComponent(character)) === character
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 相对 `root` 的路径里哪一段含取不到的字符（没有任何一段则返回 null），
+ * 以及具体是哪些字符。
+ *
+ * 目前这些字符只有 `#` 与 `?`（`&`、`+`、`,`、`:` 之类可以原样写在路径里，不受影响）。
+ * 目录段与文件段一样算。只在**相对源根**的路径上判断，项目目录名里带 `?` 不会误伤。
+ */
+export function findUnservableSegment(
+  file: string,
+  root: string = MEDIA_SOURCE_ROOT
+): { segment: string; characters: string[] } | null {
+  const relative = path.relative(root, file)
+  if (!isInsideRelative(relative)) return null
+
+  for (const segment of relative.split(path.sep)) {
+    const characters = [...new Set([...segment])].filter(
+      (character) => !isServableCharacter(character)
+    )
+    if (characters.length > 0) return { segment, characters }
+  }
+  return null
+}
+
+/** 把绝对路径换算成 `/_media/` 下的 URL；不在源根下时返回 null */
+export function mediaUrlFor(
+  absoluteFile: string,
+  roots: MediaRoots = MEDIA_ROOTS
+): string | null {
+  const relative = path.relative(roots.sourceRoot, absoluteFile)
+  if (!isInsideRelative(relative)) return null
+  return MEDIA_URL_PREFIX + encodeMediaPath(relative.split(path.sep).join('/'))
+}
+
+/** 把源根下的绝对路径换算成镜像目标路径；不在源根下时返回 null */
+export function mediaTargetFor(
+  absoluteFile: string,
+  roots: MediaRoots = MEDIA_ROOTS
+): string | null {
+  const relative = path.relative(roots.sourceRoot, absoluteFile)
+  if (!isInsideRelative(relative)) return null
+  return path.join(roots.publicDir, relative)
+}
+
+/**
+ * 能否被镜像：`root` 下的真实普通文件，且**从 `root` 到它的每一段路径都不是符号链接**。
+ * 枚举不会进入链接（避免镜像成环），校验若只看叶子就会放行一个没有产物的 URL，
+ * 所以镜像枚举与渲染校验都用这一条判据，并传入同一个源根。
+ */
+export function isMirrorableFile(
+  file: string,
+  root: string = MEDIA_SOURCE_ROOT
+): boolean {
+  const relative = path.relative(root, file)
+  if (!isInsideRelative(relative)) return false
+
+  try {
+    if (!lstatSync(root).isDirectory() || !lstatSync(file).isFile())
+      return false
+    // 路径里出现链接时，真实路径与字面路径不一致
+    return realpathSync(file) === path.join(realpathSync(root), relative)
+  } catch {
+    return false
+  }
+}
+
+/** 判定一条媒体引用。除路径映射外不访问文件系统。 */
+export function classifyMediaRef(
+  rawSrc: string,
+  markdownPath: string,
+  roots: MediaRoots = MEDIA_ROOTS
+): MediaRef {
+  const src = normalizeMediaUrl(rawSrc)
+  const url = classifyMediaUrl(src)
+  if (url.kind !== 'relative') return url
+
+  // `?query` 与 `#fragment` 不属于文件名；`#t=10` 是合法的媒体片段
+  const suffixStart = src.search(/[?#]/)
+  const pathname = suffixStart === -1 ? src : src.slice(0, suffixStart)
+  const suffix = src.slice(pathname.length)
+  const file = path.resolve(path.dirname(markdownPath), decodeRefPath(pathname))
+  const target = mediaUrlFor(file, roots)
+  return target
+    ? { kind: 'local', file, url: target + suffix }
+    : { kind: 'outside', file }
+}

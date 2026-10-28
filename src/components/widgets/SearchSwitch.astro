@@ -1,0 +1,835 @@
+---
+import { FEATURES } from '~/config'
+import { withBasePath } from '~/utils/path'
+import { parseTuple } from '~/utils/data'
+
+const { search } = FEATURES
+if (!search || (Array.isArray(search) && !search[0])) return
+
+const { includes, filter, navHighlight, batchLoadSize, maxItemsPerPage } =
+  search[1]
+if (includes.length === 0)
+  throw new Error(
+    "Search feature enabled, but `includes` array is empty. Please check 'src/config.ts' for the correct configuration."
+  )
+const filterEnabled = filter && includes.length > 1
+const batchSize = parseTuple(batchLoadSize, 'batchLoadSize')
+const maxItems = parseTuple(maxItemsPerPage, 'maxItemsPerPage')
+---
+
+<!-- Search Switch -->
+<button
+  type="button"
+  id="search-switch"
+  class="op-60 hover:op-100 op-transition"
+  title="Search"
+  aria-label="Search"
+>
+  <div u-i-grommet-icons-search></div>
+</button>
+
+<!-- Search Panel -->
+<search-panel
+  role="dialog"
+  id="search-panel"
+  class="hidden"
+  aria-modal="true"
+  aria-labelledby="search-label"
+  aria-keyshortcuts="ArrowUp,ArrowDown,Enter,Esc"
+  data-filter={filterEnabled}
+  data-batch-size={batchSize}
+  data-max-items={maxItems}
+>
+  <div class="flex flex-col gap-2">
+    <!-- Tab list -->
+    {
+      filterEnabled && (
+        <div
+          role="tablist"
+          class="search-tabs flex gap-2 justify-start items-center text-xs"
+          aria-label="Search categories"
+        >
+          {includes.map((item) => (
+            <button
+              type="button"
+              role="tab"
+              data-type={item.toLowerCase()}
+            >
+              {item.charAt(0).toUpperCase() + item.slice(1)}
+            </button>
+          ))}
+        </div>
+      )
+    }
+    <!-- Search Bar -->
+    <div class="search-bar">
+      <div u-i-grommet-icons-search></div>
+      <label for="search-input" id="search-label" class="sr-only"></label>
+      <input
+        type="search"
+        role="combobox"
+        id="search-input"
+        class="h-full pl-2 bg-transparent outline-0"
+        autocomplete="off"
+        autocorrect="off"
+        spellcheck="false"
+        aria-labelledby="search-label"
+        aria-autocomplete="list"
+        aria-controls="search-results"
+        aria-expanded="false"
+      />
+    </div>
+  </div>
+  <!-- Search Results -->
+  <div
+    role="listbox"
+    id="search-results"
+    class="overflow-y-auto my-1"
+    aria-labelledby="search-input"
+    tabindex="-1"
+    data-base={withBasePath('/')}
+  >
+    <!-- Results -->
+    <div id="search-content"></div>
+    <!-- Feedback -->
+    <div id="search-feedback" class="hidden py-3 text-center text-sm">
+    </div>
+    <!-- Pagination -->
+    <div
+      id="search-pagination"
+      style="display: none"
+      class="items-center justify-center gap-4 pt-4 pb-3 text-xs"
+    >
+      <button
+        class="flex items-center justify-center gap-1"
+        data-action="more"
+      >
+        <div u-i-material-symbols-arrow-cool-down></div>
+        <span></span>
+      </button>
+      <button
+        class="flex items-center justify-center gap-1"
+        data-action="all"
+      >
+        <div u-i-material-symbols-expand-all></div>
+        <span></span>
+      </button>
+    </div>
+  </div>
+  <!-- Shortcuts Footer -->
+  <footer role="note" aria-label="Keyboard shortcuts">
+    <ul class="search-shortcuts">
+      <li class="flex items-center gap-1">
+        <kbd class="search-kbd-key">
+          <div u-i-material-symbols-arrow-upward></div>
+        </kbd>
+        <kbd class="search-kbd-key">
+          <div u-i-material-symbols-arrow-downward></div>
+        </kbd>
+        <span>Navigate</span>
+      </li>
+      <li class="flex items-center gap-1">
+        <kbd class="search-kbd-key">
+          <div u-i-grommet-icons-return></div>
+        </kbd>
+        <span>Go to Page</span>
+      </li>
+      <li class="flex items-center gap-1">
+        <kbd class="search-kbd-key">esc</kbd>
+        <span>Close</span>
+      </li>
+    </ul>
+  </footer>
+</search-panel>
+
+<script>
+  import { toggleFadeEffect } from '~/utils/misc'
+
+  /* Open the search panel when the search switch is clicked.
+     Bind immediately: the first astro:page-load waits for window load. */
+  const bindSearchOpen = () => {
+    const searchSwitch = document.getElementById('search-switch')
+    if (!searchSwitch || searchSwitch.dataset.searchBound) return
+    searchSwitch.dataset.searchBound = 'true'
+
+    const handleOpen = () => {
+      toggleFadeEffect('backdrop', true, 'hidden')
+      toggleFadeEffect('search-panel', true, 'hidden')
+
+      // 面板一打开就开始拉 pagefind，用户敲第一个字时通常已经就绪。
+      // @ts-expect-error (ensurePagefind 由生产环境的 inline 脚本注入)
+      window.ensurePagefind?.()
+
+      // Do not steal focus back if the panel was closed before this frame.
+      requestAnimationFrame(() => {
+        const panel = document.getElementById('search-panel')
+        if (
+          panel?.classList.contains('fade-out') ||
+          panel?.classList.contains('hidden')
+        )
+          return
+        document.getElementById('search-input')?.focus()
+      })
+    }
+
+    searchSwitch.addEventListener('click', handleOpen)
+  }
+
+  document.addEventListener('astro:page-load', bindSearchOpen)
+  bindSearchOpen()
+</script>
+
+<script>
+  import { toggleFadeEffect } from '~/utils/misc'
+
+  interface Anchor {
+    element: string
+    id: string
+    text: string
+    location: number
+  }
+
+  interface WeightedLocation {
+    location: number
+    weight: number
+    balanced_score: number
+  }
+
+  interface SubResult {
+    title: string
+    url: string
+    anchor: Anchor
+    weighted_locations: WeightedLocation[]
+    locations: number[]
+    excerpt: string
+  }
+
+  const fakeResults = [
+    {
+      meta: {
+        title: 'Simulated Search Result in Dev Env',
+      },
+      excerpt:
+        'Mock data is used to simulate pagefind search <mark>in development</mark>, where files required for indexing exist only in memory.',
+    },
+    {
+      meta: {
+        title: 'Testing Search Functionality in Prod Env',
+      },
+      excerpt: 'Try running <mark>pnpm build && pnpm preview</mark> instead.',
+    },
+  ]
+
+  class SearchPanel extends HTMLElement {
+    #input: HTMLInputElement | null = null
+    #label: HTMLLabelElement | null = null
+    #results: HTMLElement | null = null
+    #feedback: HTMLElement | null = null
+    #content: HTMLElement | null = null
+    #pagination: HTMLElement | null = null
+    #btnMore: HTMLButtonElement | null = null
+    #btnAll: HTMLButtonElement | null = null
+    #selectedItem: HTMLAnchorElement | null = null
+
+    #filter = this.dataset.filter === 'true'
+    #tabs: HTMLElement[] = []
+    #currentTab = 0
+
+    #activeRequestId = 0
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    #allResults: any[] = []
+    #renderedCount = 0
+    #maxItems = this.dataset.maxItems
+      ? parseInt(this.dataset.maxItems || '10', 10)
+      : undefined
+
+    #batchLoading = false
+    #batchSize = this.dataset.batchSize
+      ? parseInt(this.dataset.batchSize || '5', 10)
+      : undefined
+
+    connectedCallback() {
+      this.#input = this.querySelector('#search-input')
+      this.#label = this.querySelector('#search-label')
+      this.#results = this.querySelector('#search-results')
+      this.#feedback = this.querySelector('#search-feedback')
+      this.#content = this.querySelector('#search-content')
+
+      this.#initFilter()
+      this.#initPagination()
+
+      this.#input?.addEventListener('input', this.#handleInput)
+      document.addEventListener('keydown', this.#handlePanelTab)
+
+      this.#content?.addEventListener('click', this.#handleResultClick)
+      this.#content?.addEventListener(
+        'pointerover',
+        this.#handleResultsPointerOver
+      )
+
+      this.addEventListener('keydown', this.#handleResultsKeyDown)
+    }
+
+    disconnectedCallback() {
+      this.#input?.removeEventListener('input', this.#handleInput)
+      document.removeEventListener('keydown', this.#handlePanelTab)
+
+      this.#content?.removeEventListener('click', this.#handleResultClick)
+      this.#content?.removeEventListener(
+        'pointerover',
+        this.#handleResultsPointerOver
+      )
+
+      this.removeEventListener('keydown', this.#handleResultsKeyDown)
+
+      if (this.#filter)
+        for (const tab of this.#tabs) tab.replaceWith(tab.cloneNode(true))
+      if (this.#batchSize) {
+        this.#btnMore?.removeEventListener('click', this.#handlePaginateClick)
+        this.#btnAll?.removeEventListener('click', this.#handlePaginateClick)
+      }
+
+      this.#activeRequestId++
+    }
+
+    #initFilter = () => {
+      if (!this.#filter) {
+        this.#updateHint()
+        return
+      }
+
+      const storedTab = localStorage.getItem('search-tab')
+      this.#currentTab = storedTab ? parseInt(storedTab, 10) : 0
+
+      this.#tabs = Array.from(this.querySelectorAll('[role="tab"]'))
+      for (let i = 0; i < this.#tabs.length; i++) {
+        const isSelected = i === this.#currentTab
+        this.#tabs[i].setAttribute('aria-selected', isSelected.toString())
+        if (isSelected) this.#updateHint(this.#tabs[i].dataset.type || '')
+
+        this.#tabs[i].addEventListener('click', () => this.#activateTab(i))
+      }
+    }
+
+    #initPagination = () => {
+      if (!this.#batchSize) return
+
+      this.#pagination = this.querySelector('#search-pagination')
+      this.#btnMore = this.querySelector('[data-action="more"]')
+      this.#btnAll = this.querySelector('[data-action="all"]')
+
+      this.#btnMore?.addEventListener('click', this.#handlePaginateClick)
+      this.#btnAll?.addEventListener('click', this.#handlePaginateClick)
+    }
+
+    #handleInput = async (event: Event) => {
+      if (!this.#content) return
+      const value = (event.target as HTMLInputElement).value.trim()
+
+      if (import.meta.env.PROD) {
+        const requestId = ++this.#activeRequestId
+        this.#resetView()
+        if (value.length === 0) return
+
+        // start search
+        try {
+          const options: { filters?: Record<string, string | string[]> } = {}
+          if (this.#filter && this.#tabs[this.#currentTab]) {
+            const type = this.#tabs[this.#currentTab].dataset.type
+            if (type) options.filters = { collection: type }
+          }
+
+          this.#showLoading(requestId)
+
+          // 保底：若 pagefind 还没就绪（例如面板刚打开就输入），先等它加载完。
+          // @ts-expect-error (ensurePagefind 由生产环境的 inline 脚本注入)
+          await window.ensurePagefind?.()
+
+          // @ts-expect-error (for Cannot find name 'pagefind'.ts(2304))
+          const res = await pagefind.debouncedSearch(value, options, 300)
+          // a more recent search call has been made, nothing to do
+          if (res === null) return
+          if (requestId !== this.#activeRequestId) return
+
+          // when no results
+          if (res.results.length === 0) {
+            this.#showOnlyNoResult(requestId)
+            return
+          }
+
+          // batch render or single render
+          this.#allResults = res.results
+          this.#render({ requestId })
+        } catch (_err) {
+          this.#showOnlyError(requestId)
+        }
+      } else {
+        if (this.#content.innerHTML && value) return
+        if (!value) {
+          this.#content.innerHTML = ''
+          return
+        }
+        for (const result of fakeResults) {
+          this.#content.innerHTML += `
+            <a href="${this.#results?.dataset.base}" id="${this.#nextOptionId()}" class="search-result-item">
+              <div class="search-result-title">${result.meta.title}</div>
+              <div class="search-result-excerpt">${result.excerpt}</div>
+            </a>`
+        }
+        this.#selectedItem = this.#content.querySelector('a')
+        this.#selectedItem?.setAttribute('aria-selected', 'true')
+        this.#syncActiveDescendant()
+      }
+    }
+
+    #handleResultClick = (event: MouseEvent) => {
+      if (!this.#getLink(event)) return
+
+      if (!window.matchMedia('(prefers-reduced-motion)').matches)
+        this.classList.remove('fade-in')
+      this.classList.add('hidden')
+      toggleFadeEffect('backdrop', false, 'hidden')
+    }
+
+    #handleResultsPointerOver = (event: MouseEvent) => {
+      const link = this.#getLink(event)
+      if (!link) return
+
+      this.#updateSlectedItem(link)
+    }
+
+    // 面板声明为 aria-modal，所以 Tab 必须在面板内循环：否则焦点会跑到被遮罩
+    // 盖住的页面内容上，与 aria-modal 的承诺不符（退出面板用 Escape 或点击遮罩）。
+    //
+    // 挂在 document 上而不是面板上：点面板空白处会让焦点落到 body，那时 keydown
+    // 不经过面板，挂在面板上就永远触发不到。
+    #handlePanelTab = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab') return
+      // Closing returns focus to the search button before the fade-out finishes.
+      if (this.classList.contains('hidden') || this.classList.contains('fade-out')) return
+
+      // 只算真正可见、可聚焦的控件：隐藏的「加载更多/全部」按钮参与进来的话，
+      // first/last 会指向看不见的节点，循环边界就错了。结果项是 tabindex="-1"，
+      // 用方向键选择，不进 Tab 序列。
+      const focusables = Array.from(
+        this.querySelectorAll<HTMLElement>(
+          'input, button:not([disabled]), a[href]:not([tabindex="-1"])'
+        )
+      ).filter((el) => el.getClientRects().length > 0)
+      if (focusables.length === 0) return
+
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+      const active = document.activeElement as HTMLElement | null
+
+      if (!active || !this.contains(active)) {
+        event.preventDefault()
+        first.focus()
+        return
+      }
+
+      if (event.shiftKey && active === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    #handleResultsKeyDown = (event: KeyboardEvent) => {
+      if (!this.#selectedItem || document.activeElement !== this.#input) return
+
+      const key = event.key
+      if (key !== 'ArrowDown' && key !== 'ArrowUp' && key !== 'Enter') return
+
+      event.preventDefault()
+
+      if (key === 'Enter') {
+        this.#selectedItem.click()
+        return
+      }
+
+      let target =
+        key === 'ArrowDown'
+          ? this.#getNextItem(this.#selectedItem)
+          : this.#getPrevItem(this.#selectedItem)
+
+      // when there's no next/prev item, loop around
+      if (!target) {
+        target =
+          key === 'ArrowDown'
+            ? (this.#content?.querySelector('a') ?? null)
+            : (this.#content?.querySelector('a:last-child') ?? null)
+      }
+
+      if (target) {
+        this.#updateSlectedItem(target)
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }
+
+    #updateHint = (type?: string) => {
+      let hint = 'Search'
+      if (type) {
+        const cap = type.charAt(0).toUpperCase() + type.slice(1)
+        hint = `Search ${cap}`.trim()
+      }
+
+      if (this.#input) this.#input.placeholder = hint
+      if (this.#label) this.#label.textContent = hint
+    }
+
+    #activateTab = async (idx: number) => {
+      if (idx === this.#currentTab) return
+
+      this.#tabs[this.#currentTab]?.setAttribute('aria-selected', 'false')
+      this.#tabs[idx]?.setAttribute('aria-selected', 'true')
+
+      this.#currentTab = idx
+      localStorage.setItem('search-tab', idx.toString())
+
+      const type = this.#tabs[idx]?.dataset.type || ''
+      this.#updateHint(type)
+
+      if (this.#input?.value) {
+        this.#resetView()
+        await this.#handleInput({ target: this.#input } as unknown as Event)
+        this.#input?.focus()
+      }
+    }
+
+    #handlePaginateClick = async (ev: MouseEvent) => {
+      const btn = ev.currentTarget as HTMLButtonElement
+      if (!btn || this.#batchLoading) return
+
+      const requestId = this.#activeRequestId
+
+      const action = btn.dataset.action
+      if (action === 'more') {
+        await this.#render({ requestId, next: true, all: false })
+        this.#input?.focus()
+      } else if (action === 'all') {
+        await this.#render({ requestId, next: true, all: true })
+        this.#input?.focus()
+      }
+    }
+
+    #render = async ({
+      requestId,
+      next = false,
+      all = false,
+    }: {
+      requestId: number
+      next?: boolean
+      all?: boolean
+    }) => {
+      if (!this.#content) return
+      if (requestId !== this.#activeRequestId) return
+      if (this.#batchSize && this.#batchLoading) return
+
+      try {
+        const start = this.#renderedCount
+        const end =
+          !this.#batchSize || all
+            ? this.#allResults.length
+            : Math.min(start + this.#batchSize, this.#allResults.length)
+
+        if (next) this.#showLoading(requestId, true)
+
+        const slice = this.#allResults.slice(start, end)
+        const settled = await Promise.allSettled(slice.map((r) => r.data()))
+        if (requestId !== this.#activeRequestId) return
+        const fulfilled = settled.filter((s) => s.status === 'fulfilled')
+        if (fulfilled.length === 0) {
+          this.#showOnlyError(requestId)
+          return
+        }
+
+        const frag = document.createDocumentFragment()
+        for (let r = 0; r < fulfilled.length; r++) {
+          if (requestId !== this.#activeRequestId) return
+          const data = fulfilled[r].value
+
+          const h1 = document.createElement('div')
+          h1.className = 'search-result-h1'
+          h1.textContent = data.meta?.title ?? ''
+          frag.appendChild(h1)
+
+          let subResults = data.sub_results
+          if (this.#maxItems)
+            subResults = this.#sortSubResults(subResults, this.#maxItems)
+
+          for (let s = 0; s < subResults.length; s++) {
+            const a = document.createElement('a')
+            a.href = subResults[s].url
+            a.className = 'search-result-item'
+            a.id = this.#nextOptionId()
+            a.setAttribute('role', 'option')
+            a.setAttribute('tabindex', '-1')
+
+            if (r === 0 && s === 0) {
+              a.setAttribute('aria-selected', 'true')
+              if (this.#selectedItem)
+                this.#selectedItem.setAttribute('aria-selected', 'false')
+              this.#selectedItem = a
+              this.#syncActiveDescendant()
+            } else {
+              a.setAttribute('aria-selected', 'false')
+            }
+
+            a.innerHTML = `
+              <div class="search-result-title">${subResults[s].title}</div>
+              <div class="search-result-excerpt">${subResults[s].excerpt}</div>`
+            frag.appendChild(a)
+          }
+        }
+
+        if (requestId !== this.#activeRequestId) return
+        this.#showFeedback('')
+        this.#content.appendChild(frag)
+        this.#selectedItem?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+        })
+
+        if (this.#batchSize) {
+          this.#renderedCount = end
+          const hasMore = this.#renderedCount < this.#allResults.length
+          this.#showPagination(hasMore)
+        }
+      } catch (_err) {
+        this.#showOnlyError(requestId)
+      } finally {
+        this.#results?.removeAttribute('aria-busy')
+        if (this.#batchSize) this.#batchLoading = false
+      }
+    }
+
+    #sortSubResults = (data: SubResult[], maxItems: number) => {
+      return data
+        .toSorted((a, b) => {
+          const aWeightedCount = a.weighted_locations.length
+          const bWeightedCount = b.weighted_locations.length
+          if (aWeightedCount !== bWeightedCount) {
+            return bWeightedCount - aWeightedCount
+          }
+          const aAvgWeight =
+            a.weighted_locations.reduce((sum, loc) => sum + loc.weight, 0) /
+            (aWeightedCount || 1)
+          const bAvgWeight =
+            b.weighted_locations.reduce((sum, loc) => sum + loc.weight, 0) /
+            (bWeightedCount || 1)
+          return bAvgWeight - aAvgWeight
+        })
+        .slice(0, maxItems)
+    }
+
+    #resetView = () => {
+      this.#content?.replaceChildren()
+      this.#showFeedback('')
+      this.#input?.setAttribute('aria-expanded', 'false')
+      this.#results?.removeAttribute('aria-busy')
+
+      this.#allResults = []
+      this.#renderedCount = 0
+      this.#selectedItem = null
+      this.#syncActiveDescendant()
+
+      if (this.#batchSize) {
+        this.#batchLoading = false
+        this.#showPagination(false)
+      }
+    }
+
+    #showFeedback = (feedback: string) => {
+      if (!this.#feedback) return
+      if (feedback) this.#feedback.textContent = feedback
+      this.#feedback.classList.toggle('hidden', !feedback)
+    }
+
+    #showLoading = (requestId: number, next = false) => {
+      if (requestId !== this.#activeRequestId) return
+
+      if (next) {
+        this.#showPagination(false)
+        this.#batchLoading = true
+      }
+      this.#showFeedback('Loading...')
+      this.#results?.setAttribute('aria-busy', 'true')
+      if (!next) this.#input?.setAttribute('aria-expanded', 'true')
+    }
+
+    #showOnlyError = (requestId: number) => {
+      if (requestId !== this.#activeRequestId) return
+
+      this.#showFeedback('Oops! Something went wrong. Try again.')
+      this.#results?.removeAttribute('aria-busy')
+    }
+
+    #showOnlyNoResult = (requestId: number) => {
+      if (requestId !== this.#activeRequestId) return
+
+      this.#showFeedback('No results found.')
+      this.#results?.removeAttribute('aria-busy')
+    }
+
+    #showPagination = (show: boolean) => {
+      if (!this.#pagination || !this.#batchSize) return
+
+      const all = this.#allResults.length
+      const more = Math.min(this.#batchSize, all - this.#renderedCount)
+
+      if (this.#btnMore)
+        this.#btnMore.querySelector('span')!.textContent = `More +${more}`
+      if (this.#btnAll)
+        this.#btnAll.querySelector('span')!.textContent = `All ${all}`
+
+      this.#pagination.style.display = show ? 'flex' : 'none'
+    }
+
+    #getLink = (event: Event) => {
+      return event.target instanceof HTMLElement && event.target.closest('a')
+    }
+
+    // 选项需要 id，才能用 aria-activedescendant 告诉读屏器当前高亮项。
+    #optionSeq = 0
+    #nextOptionId = () => `search-option-${++this.#optionSeq}`
+
+    #syncActiveDescendant = () => {
+      if (!this.#input) return
+
+      const id = this.#selectedItem?.id
+      if (id) this.#input.setAttribute('aria-activedescendant', id)
+      else this.#input.removeAttribute('aria-activedescendant')
+    }
+
+    #updateSlectedItem = (next: HTMLAnchorElement) => {
+      if (!this.#selectedItem || this.#selectedItem === next) return
+
+      this.#selectedItem.setAttribute('aria-selected', 'false')
+      this.#selectedItem = next
+      this.#selectedItem.setAttribute('aria-selected', 'true')
+      this.#syncActiveDescendant()
+    }
+
+    #isItem = (el: Element | null): el is HTMLAnchorElement => {
+      return !!(el instanceof HTMLAnchorElement)
+    }
+
+    #getNextItem = (from: HTMLElement): HTMLAnchorElement | null => {
+      let cur: Element | null = from.nextElementSibling
+      while (cur) {
+        if (this.#isItem(cur)) return cur
+        cur = cur.nextElementSibling
+      }
+      return null
+    }
+
+    #getPrevItem = (from: HTMLElement): HTMLAnchorElement | null => {
+      let cur: Element | null = from.previousElementSibling
+      while (cur) {
+        if (this.#isItem(cur)) return cur
+        cur = cur.previousElementSibling
+      }
+      return null
+    }
+  }
+
+  if (!customElements.get('search-panel'))
+    customElements.define('search-panel', SearchPanel)
+</script>
+
+<!-- https://github.com/pagefind/pagefind/blob/production-docs/pagefind_web_js/types/index.d.ts -->
+{import.meta.env.PROD &&
+  <script is:inline define:vars={{scriptUrl: withBasePath('/pagefind/pagefind.js'), navHighlight}}>
+    async function loadPagefind() {
+      const pagefind = await import(scriptUrl)
+
+      // https://pagefind.app/docs/search-config/
+      await pagefind.options({
+        'excerptLength': 20,
+        ...(navHighlight && {
+          'highlightParam': 'search'
+        }),
+
+        // https://pagefind.app/docs/ranking/
+        ranking: {
+          termFrequency: 0.6,
+          termSimilarity: 1.0,
+          pageLength: 0.0,
+          termSaturation: 1.4
+        }
+      })
+
+      pagefind.init()
+      window.pagefind = pagefind
+    }
+
+    // 按需加载：搜索面板打开时才拉 pagefind（含 worker）。
+    // 没用搜索的访问不会再下这 ~35KB，也不会启动 worker。
+    let pagefindPromise
+    function ensurePagefind() {
+      // 失败后清掉 memo，下次打开面板/输入时可以重试；否则一次网络抖动就会把搜索锁死到刷新。
+      pagefindPromise ??= loadPagefind().catch((error) => {
+        pagefindPromise = undefined
+        throw error
+      })
+      return pagefindPromise
+    }
+
+    window.ensurePagefind = ensurePagefind
+  </script>}
+
+{import.meta.env.PROD && navHighlight &&
+  <script is:inline define:vars={{scriptUrl: withBasePath('/pagefind/pagefind-highlight.js')}}>
+    async function loadPagefindHighlight() {
+      await import(scriptUrl)
+      const PagefindHighlight = window.PagefindHighlight
+      if (!PagefindHighlight) return
+      const pagefindHighlight = new PagefindHighlight({
+        // https://pagefind.app/docs/highlight-config
+        highlightParam: "search",
+        markContext: "[data-pagefind-body]",
+        markOptions: {
+          // https://markjs.io/#mark
+          className: "pagefind-highlight",
+          exclude: ["[data-pagefind-ignore]", "[data-pagefind-ignore] *"],
+        },
+        addStyles: false,
+      });
+
+      window.pagefindHighlight = pagefindHighlight
+    }
+
+    // 供类型检查看得见的显式全局：页面切换时由 ensurePagefindHighlight 调用。
+    window.loadPagefindHighlight = loadPagefindHighlight
+  </script>}
+
+{import.meta.env.PROD && navHighlight &&
+  <script>
+    // 高亮只服务于带 ?search= 的落地页，按需加载，并在每次页面切换后重新调用。
+    type HighlightWindow = Window & {
+      loadPagefindHighlight?: () => Promise<void>
+      pagefindHighlight?: { highlight: () => void }
+    }
+
+    let highlightPromise: Promise<void> | undefined
+
+    async function ensurePagefindHighlight() {
+      const w = window as HighlightWindow
+      if (w.pagefindHighlight) return w.pagefindHighlight
+      if (!w.loadPagefindHighlight) return undefined
+      highlightPromise ??= w.loadPagefindHighlight()
+      await highlightPromise
+      return w.pagefindHighlight
+    }
+
+    document.addEventListener('astro:page-load', async () => {
+      const params = new URLSearchParams(location.search)
+      if (!params.has('search')) return
+
+      const pagefindHighlight = await ensurePagefindHighlight()
+      pagefindHighlight?.highlight()
+    })
+  </script>}

@@ -1,0 +1,114 @@
+---
+import { getCollection } from 'astro:content'
+
+import Warning from '~/components/base/Warning.astro'
+import GroupItem from '~/components/views/GroupItem.astro'
+
+import type { CollectionEntry } from 'astro:content'
+import type { GroupItemData } from '~/components/views/GroupItem.astro'
+
+interface Props {
+  collectionType: 'projects'
+}
+
+const { collectionType } = Astro.props
+
+const WARNING = `No content available for display.
+  Please review and modify <code>GroupView.astro</code> as needed.`
+
+const projects = await getCollection(collectionType)
+const isEmpty = projects.length === 0
+
+let data: Record<string, GroupItemData[]> = {}
+
+type ProjectEntry = CollectionEntry<'projects'>['data']
+
+data = projects
+  .map((project: CollectionEntry<'projects'>) => project.data)
+  .reduce((acc: Record<string, GroupItemData[]>, item: ProjectEntry) => {
+    const { category, ...rest } = item
+    ;(acc[category] ??= []).push(rest)
+    return acc
+  }, Object.create(null))
+---
+
+{isEmpty ? (
+  <Warning html={WARNING} />
+) : (
+  <div class="project-groups">
+    <p class="project-groups__hint">
+      悬浮先看履历亮点；点击打开完整项目档案。GitHub
+      只放在档案的第二层，留给愿意继续核对的人。
+    </p>
+    {Object.keys(data).map((key, idx) => (
+      <section
+        class="project-group slide-enter"
+        style={{ '--enter-stage': idx }}
+      >
+        <h2 class="project-group__title">{key}</h2>
+        <div class="project-group__items">
+          <GroupItem items={data[key]} />
+        </div>
+      </section>
+    ))}
+  </div>
+)}
+
+<style>
+  .project-groups {
+    display: grid;
+    gap: 2rem;
+    margin: 0;
+  }
+
+  .project-groups__hint {
+    max-width: 42rem;
+    margin: 0 0 0.25rem;
+    color: color-mix(in srgb, var(--c-text) 58%, transparent);
+    font-size: 0.8rem;
+    line-height: 1.65;
+  }
+
+  .project-group {
+    display: grid;
+    gap: 0.625rem;
+  }
+
+  .project-group__title {
+    margin: 0;
+    color: inherit;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    opacity: 0.45;
+    text-transform: uppercase;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .project-group__title::before {
+    content: '';
+    display: inline-block;
+    width: 1.1rem;
+    height: 2px;
+    margin-right: 0.45rem;
+    vertical-align: middle;
+    border-radius: 999px;
+    background: var(--accent);
+  }
+
+  :global(.dark) .project-group__title {
+    opacity: 0.2;
+  }
+
+  .project-group__items {
+    min-width: 0;
+  }
+
+  @media (max-width: 767.9px) {
+    .project-groups {
+      gap: 1.5rem;
+      margin-top: 1rem;
+    }
+  }
+</style>

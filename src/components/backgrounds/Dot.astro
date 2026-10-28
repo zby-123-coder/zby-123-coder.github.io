@@ -1,0 +1,190 @@
+---
+// inspired by: https://github.com/antfu/antfu.me/blob/main/src/components/ArtDots.vue
+---
+
+<bg-dot class="z--1 fixed top-0 bottom-0 left-0 right-0 pointer-events-none print:hidden">
+  <canvas class="h-full w-full"></canvas>
+</bg-dot>
+
+<script>
+  import { sizeCanvasForViewport } from '~/utils/canvas-size.js'
+  import { createReducedMotionGate } from '~/utils/reduced-motion.js'
+  import { observeTheme } from '~/utils/theme-observer.js'
+
+  class BgDotElement extends HTMLElement {
+    canvas: HTMLCanvasElement | null = null
+    ctx: CanvasRenderingContext2D | null = null
+    rafId: number | null = null
+    lastFrameAt = 0
+    points: { x: number; y: number; opacity: number }[] = []
+    cleanupResize: (() => void) | null = null
+    cleanupTheme: (() => void) | null = null
+    motionGate: { start: () => void; stop: () => void } | null = null
+
+    static readonly SCALE = 200
+    static readonly LENGTH = 10
+    static readonly SPACING = 15
+    static readonly FPS = 20
+    // 大屏按面积放大间距，把点数压到约 8000。这是目标，不是硬上限：
+    // 边缘补点后 1080p / 4K 会略超，再精确校准只少几百点，不值得单独一层。
+    static readonly MAX_POINTS = 8000
+    // 按透明度分档批量描边，避免逐点 beginPath / stroke。
+    static readonly ALPHA_BUCKETS = 6
+
+    connectedCallback() {
+      this.canvas = this.querySelector('canvas')
+      this.ctx = this.canvas?.getContext('2d') ?? null
+      if (!this.canvas || !this.ctx) return
+
+      const resize = () => {
+        this.resizeCanvas()
+        this.rebuildPoints()
+        this.draw(performance.now())
+      }
+
+      window.addEventListener('resize', resize)
+      this.cleanupResize = () => window.removeEventListener('resize', resize)
+
+      resize()
+
+      // 减少动态效果时只画一帧静态背景，不启动循环；系统设置变化时启停。
+      this.motionGate = createReducedMotionGate({
+        onStatic: () => {
+          if (this.rafId !== null) cancelAnimationFrame(this.rafId)
+          this.rafId = null
+          this.draw(performance.now())
+        },
+        onAnimate: () => {
+          if (this.rafId === null) this.tick(performance.now())
+        },
+      })
+      this.motionGate.start()
+      this.cleanupTheme = observeTheme(() => this.draw(performance.now()))
+    }
+
+    disconnectedCallback() {
+      if (this.rafId !== null) cancelAnimationFrame(this.rafId)
+      this.rafId = null
+      this.cleanupResize?.()
+      this.cleanupResize = null
+      this.cleanupTheme?.()
+      this.cleanupTheme = null
+      this.motionGate?.stop()
+      this.motionGate = null
+      this.ctx = null
+      this.canvas = null
+      this.points = []
+    }
+
+    resizeCanvas() {
+      if (!this.canvas || !this.ctx) return
+
+      sizeCanvasForViewport(
+        this.canvas,
+        this.ctx,
+        window.innerWidth,
+        window.innerHeight,
+        window.devicePixelRatio
+      )
+    }
+
+    rebuildPoints() {
+      const width = window.innerWidth
+      const height = window.innerHeight
+      const points: { x: number; y: number; opacity: number }[] = []
+
+      const columns = Math.ceil(
+        (width + BgDotElement.SPACING) / BgDotElement.SPACING
+      )
+      const rows = Math.ceil(
+        (height + BgDotElement.SPACING) / BgDotElement.SPACING
+      )
+      const spacing = Math.max(
+        BgDotElement.SPACING,
+        BgDotElement.SPACING *
+          Math.sqrt((columns * rows) / BgDotElement.MAX_POINTS)
+      )
+
+      for (let x = -spacing / 2; x < width + spacing; x += spacing) {
+        for (let y = -spacing / 2; y < height + spacing; y += spacing) {
+          points.push({ x, y, opacity: Math.random() * 0.5 + 0.5 })
+        }
+      }
+
+      this.points = points
+    }
+
+    getForceOnPoint(x: number, y: number, t: number) {
+      const value =
+        Math.sin(x / BgDotElement.SCALE + t) +
+        Math.cos(y / BgDotElement.SCALE - t * 1.15) +
+        Math.sin((x + y) / BgDotElement.SCALE / 2 + t * 0.75)
+
+      return ((value + 3) / 6) * Math.PI * 2
+    }
+
+    getLength(x: number, y: number, t: number) {
+      const value =
+        Math.sin((x / BgDotElement.SCALE) * 0.8 - t * 1.25) +
+        Math.cos((y / BgDotElement.SCALE) * 0.9 + t) +
+        2
+
+      return (value / 4 + 0.5) * BgDotElement.LENGTH
+    }
+
+    draw(now: number) {
+      if (!this.canvas || !this.ctx) return
+
+      const width = window.innerWidth
+      const height = window.innerHeight
+      const t = now / 1600
+      const isDark = document.documentElement.classList.contains('dark')
+      const color = isDark ? 75 : 140
+
+      this.ctx.clearRect(0, 0, width, height)
+      this.ctx.lineWidth = 2
+      this.ctx.lineCap = 'round'
+
+      // 按透明度分档：先把每档的点写进同一条路径，再每档只 stroke 一次。
+      // 逐点 beginPath / stroke 时，每帧要为六千多个点各建一条路径；分档后每帧
+      // 只有 ALPHA_BUCKETS 次，外观差异在 1/6 透明度以内。
+      const buckets = BgDotElement.ALPHA_BUCKETS
+      const paths: Path2D[] = []
+      for (let i = 0; i < buckets; i++) paths.push(new Path2D())
+
+      for (const point of this.points) {
+        const { x, y } = point
+        const rad = this.getForceOnPoint(x, y, t)
+        const length = this.getLength(x, y, t)
+        const nx = x + Math.cos(rad) * length
+        const ny = y + Math.sin(rad) * length
+        const alpha = (Math.abs(Math.cos(rad)) * 0.8 + 0.2) * point.opacity
+        const bucket = Math.min(buckets - 1, Math.floor(alpha * buckets))
+
+        const path = paths[bucket]
+        path.moveTo(nx, ny)
+        path.lineTo(nx + 0.01, ny + 0.01)
+      }
+
+      for (let i = 0; i < buckets; i++) {
+        // 取每档区间的中点作为该档透明度。
+        const alpha = (i + 0.5) / buckets
+        this.ctx.strokeStyle = `rgba(${color}, ${color}, ${color}, ${alpha})`
+        this.ctx.stroke(paths[i])
+      }
+    }
+
+    tick = (now: number) => {
+      if (now - this.lastFrameAt >= 1000 / BgDotElement.FPS) {
+        this.draw(now)
+        this.lastFrameAt = now
+      }
+
+      this.rafId = requestAnimationFrame(this.tick)
+    }
+  }
+
+  if (!customElements.get('bg-dot')) {
+    customElements.define('bg-dot', BgDotElement)
+  }
+</script>

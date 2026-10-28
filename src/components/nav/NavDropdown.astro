@@ -1,0 +1,282 @@
+---
+import { getCollection } from 'astro:content'
+import { INTEREST_ICONS, MORE_LINKS } from '~/config'
+import { getPublishedBlogPosts, getSortedPosts } from '~/utils/data'
+import {
+  getCategoryPreviews,
+  serializeBlogQuery,
+} from '~/utils/blog-browser.js'
+import { withBasePath } from '~/utils/path'
+
+interface Props {
+  kind: 'blogs' | 'interests' | 'more'
+}
+const { kind } = Astro.props
+const publishedPosts =
+  kind === 'blogs' ? getSortedPosts(await getPublishedBlogPosts()) : []
+const previews = getCategoryPreviews(publishedPosts)
+const interests =
+  kind === 'interests'
+    ? (await getCollection('interests')).sort(
+        (a, b) => a.data.order - b.data.order
+      )
+    : []
+const menuId = `nav-menu-${kind}`
+const noScriptPreviewCss =
+  kind === 'blogs'
+    ? `@media (min-width:601px){${previews
+        .map((_, index) => {
+          const nth = index + 1
+          const scope = '.nav-dropdown--blogs:not([data-bound])'
+          const onCategory = `${scope} .nav-dropdown__categories:has(> .nav-dropdown__category-list > .nav-dropdown__category:nth-child(${nth}):is(:hover, :focus-within))`
+          const onPreview = `${scope} .nav-dropdown__categories:has(> .nav-dropdown__preview-pane > .nav-dropdown__preview:nth-child(${nth}):is(:hover, :focus-within))`
+          const preview =
+            '> .nav-dropdown__preview-pane > .nav-dropdown__preview'
+          const link = `> .nav-dropdown__category-list > .nav-dropdown__category:nth-child(${nth}) > .nav-dropdown__category-link`
+          const highlight =
+            'background:color-mix(in srgb,var(--c-text) 8%,var(--c-bg))'
+          const rules = [
+            `${onCategory} ${preview}:nth-child(${nth}),${onPreview} ${preview}:nth-child(${nth}){display:block}`,
+            `${onPreview} ${link}{${highlight}}`,
+          ]
+          if (index > 0)
+            rules.push(
+              `${onCategory} ${preview}:first-child,${onPreview} ${preview}:first-child{display:none}`,
+              `${onPreview} > .nav-dropdown__category-list > .nav-dropdown__category:first-child > .nav-dropdown__category-link{background:transparent}`
+            )
+          return rules.join('')
+        })
+        .join('')}}`
+    : ''
+---
+
+<div class={`nav-dropdown nav-dropdown--${kind}`} data-nav-dropdown>
+  <div class="nav-dropdown__trigger">
+    <slot />
+  </div>
+  <div id={menuId} class="nav-dropdown__panel">
+    {kind === 'blogs' ? (
+      <>
+        <div class="nav-dropdown__categories">
+          <div class="nav-dropdown__category-list">
+            {previews.map(({ id, label, count }, index) => (
+              <div
+                class="nav-dropdown__category"
+                data-preview-category={id}
+                style={`--i: ${index}`}
+              >
+                <a
+                  class="nav-dropdown__category-link"
+                  href={`${withBasePath('/blogs/')}${serializeBlogQuery({ category: label, tags: [], page: 1 })}`}
+                >
+                  <span>{label}</span>
+                  <span>{count}</span>
+                </a>
+              </div>
+            ))}
+          </div>
+          <div class="nav-dropdown__preview-pane">
+            {previews.map(({ id, label, posts }, index) => (
+              <section
+                class="nav-dropdown__preview"
+                data-preview-category={id}
+                style={`--i: ${index}`}
+                aria-label={`${label}最近文稿`}
+              >
+                <h2>{label} · 最近</h2>
+                <ul>
+                  {posts.map(({ id: postId, data }) => (
+                    <li>
+                      <time datetime={data.pubDate.toISOString()}>
+                        {data.pubDate
+                          .toISOString()
+                          .slice(5, 10)
+                          .replace('-', '.')}
+                      </time>
+                      <a
+                        href={
+                          data.redirect || withBasePath(`/blogs/${postId}/`)
+                        }
+                      >
+                        {data.title}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
+        </div>
+        {noScriptPreviewCss && (
+          <style is:inline set:html={noScriptPreviewCss} />
+        )}
+        <a class="nav-dropdown__all" href={withBasePath('/blogs/')}>
+          查看全部文稿 <span>{publishedPosts.length} 篇</span>
+        </a>
+      </>
+    ) : kind === 'interests' ? (
+      <ul class="nav-dropdown__interests">
+        {interests.map(({ id, data }) => (
+          <li>
+            <a href={withBasePath(`/interests/${id}/`)}>
+              {Object.hasOwn(INTEREST_ICONS, id) && INTEREST_ICONS[id] && (
+                <span
+                  class:list={['nav-dropdown__icon', INTEREST_ICONS[id]]}
+                  aria-hidden="true"
+                />
+              )}
+              <span>
+                <strong>{data.title}</strong>
+                <small>{data.description}</small>
+              </span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <ul class="nav-dropdown__interests">
+        {MORE_LINKS.map(({ title, description, href, icon, external }) => (
+          <li>
+            <a
+              href={external ? href : withBasePath(href)}
+              target={external ? '_blank' : undefined}
+              rel={external ? 'noopener noreferrer' : undefined}
+              aria-label={external ? `${title}（新窗口）` : undefined}
+            >
+              <span
+                class:list={['nav-dropdown__icon', icon]}
+                aria-hidden="true"
+              />
+              <span>
+                <strong>{title}</strong>
+                <small>{description}</small>
+              </span>
+              {external && (
+                <span class="nav-dropdown__external" aria-hidden="true">
+                  ↗
+                </span>
+              )}
+            </a>
+          </li>
+        ))}
+      </ul>
+    )}
+  </div>
+</div>
+
+<script>
+  const closeDropdowns = () => {
+    document
+      .querySelectorAll<HTMLElement>('[data-nav-dropdown]')
+      .forEach((menu) => {
+        delete menu.dataset.open
+        menu
+          .querySelector('[data-nav-link]')
+          ?.setAttribute('aria-expanded', 'false')
+      })
+  }
+  const mountDropdowns = () => {
+    document
+      .querySelectorAll<HTMLElement>('[data-nav-dropdown]')
+      .forEach((menu) => {
+        if (menu.dataset.bound) return
+        menu.dataset.bound = 'true'
+        const link = menu.querySelector<HTMLAnchorElement>('[data-nav-link]')!
+        const panel = menu.querySelector<HTMLElement>('.nav-dropdown__panel')!
+        const categories = Array.from(
+          menu.querySelectorAll<HTMLElement>('.nav-dropdown__category')
+        )
+        const selectPreview = (selected: HTMLElement) => {
+          const id = selected.dataset.previewCategory
+          menu
+            .querySelectorAll<HTMLElement>('[data-preview-category]')
+            .forEach((node) => {
+              node.toggleAttribute(
+                'data-preview-active',
+                node.dataset.previewCategory === id
+              )
+            })
+        }
+        if (categories[0]) selectPreview(categories[0])
+        categories.forEach((category) => {
+          category
+            .querySelector('a')
+            ?.addEventListener('pointerenter', (event) => {
+              if ((event as PointerEvent).pointerType === 'mouse')
+                selectPreview(category)
+            })
+          category.addEventListener('focusin', () => selectPreview(category))
+        })
+        link.setAttribute('aria-haspopup', 'true')
+        link.setAttribute('aria-controls', panel.id)
+        link.setAttribute('aria-expanded', 'false')
+        let touchOpening = false
+        const setOpen = (open: boolean) => {
+          if (open) {
+            closeDropdowns()
+            menu.dataset.open = ''
+          } else delete menu.dataset.open
+          link.setAttribute('aria-expanded', String(open))
+        }
+        menu.addEventListener('pointerenter', (event) => {
+          if (event.pointerType === 'mouse') setOpen(true)
+        })
+        menu.addEventListener('pointerleave', (event) => {
+          if (
+            event.pointerType === 'mouse' &&
+            !menu.querySelector(':focus-visible')
+          )
+            setOpen(false)
+        })
+        menu.addEventListener('focusin', () => setOpen(true))
+        menu.addEventListener('focusout', (event) => {
+          if (
+            !(event.relatedTarget instanceof Node) ||
+            !menu.contains(event.relatedTarget)
+          )
+            setOpen(false)
+        })
+        link.addEventListener('pointerdown', (event) => {
+          touchOpening =
+            event.pointerType === 'touch' && !menu.hasAttribute('data-open')
+        })
+        link.addEventListener('click', (event) => {
+          if (!touchOpening) return
+          event.preventDefault()
+          touchOpening = false
+          setOpen(true)
+        })
+        menu.addEventListener('keydown', (event) => {
+          if (
+            event.target === link &&
+            (event.key === 'ArrowDown' || event.key === ' ')
+          ) {
+            event.preventDefault()
+            setOpen(true)
+            panel.querySelector<HTMLAnchorElement>('a')?.focus()
+          }
+        })
+      })
+  }
+  document.addEventListener('pointerdown', (event) => {
+    if (
+      !(event.target instanceof Element) ||
+      !event.target.closest('[data-nav-dropdown]')
+    )
+      closeDropdowns()
+  })
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return
+    const menu = document.querySelector<HTMLElement>(
+      '[data-nav-dropdown][data-open]'
+    )
+    if (!menu) return
+    event.preventDefault()
+    if (menu.contains(document.activeElement))
+      menu.querySelector<HTMLAnchorElement>('[data-nav-link]')?.focus()
+    closeDropdowns()
+  })
+  document.addEventListener('astro:before-preparation', closeDropdowns)
+  document.addEventListener('astro:page-load', mountDropdowns)
+  mountDropdowns()
+</script>

@@ -1,0 +1,42 @@
+---
+---
+
+<div id="backdrop" class="hidden z-150 fixed inset-0" aria-hidden="true"></div>
+
+<script>
+  import { toggleFadeEffect } from '~/utils/misc'
+
+  const PANELS = [
+    { id: 'search-panel', button: 'search-switch', hiddenClass: 'hidden' },
+  ]
+
+  const closeOpenPanel = () => {
+    for (const { id, button, hiddenClass } of PANELS) {
+      const panel = document.getElementById(id)
+      if (!panel || panel.classList.contains(hiddenClass)) continue
+
+      toggleFadeEffect(id, false, hiddenClass)
+      toggleFadeEffect('backdrop', false, 'hidden')
+      document.getElementById(button)?.focus()
+      return true
+    }
+    return false
+  }
+
+  const bindBackdrop = () => {
+    const backdrop = document.getElementById('backdrop')
+    if (!backdrop || backdrop.dataset.backdropBound) return
+    backdrop.dataset.backdropBound = 'true'
+    backdrop.addEventListener('click', () => {
+      if (!closeOpenPanel()) toggleFadeEffect('backdrop', false, 'hidden')
+    })
+  }
+
+  document.addEventListener('astro:page-load', bindBackdrop)
+  bindBackdrop()
+
+  /* 'Tab' is trapped by SearchSwitch while the dialog is open. */
+  document.addEventListener('keyup', (event: KeyboardEvent) => {
+    if (event.key === 'Escape') closeOpenPanel()
+  })
+</script>

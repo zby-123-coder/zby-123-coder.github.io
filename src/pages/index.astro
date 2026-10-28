@@ -1,0 +1,48 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro'
+import BlogProfile from '~/components/blog/BlogProfile.astro'
+import WritingHeatmap from '~/components/home/WritingHeatmap.astro'
+import ProgressStats from '~/components/widgets/ProgressStats.astro'
+import RecentWriting from '~/components/home/RecentWriting.astro'
+import RecentMedia from '~/components/home/RecentMedia.astro'
+import { withBasePath } from '~/utils/path'
+---
+
+<BaseLayout
+  title="首页"
+  description="AI 产品、Agent 系统、项目档案与仍在生长的生活记录。"
+  bgType="dot"
+>
+  <div class="home-page" data-blog-home={withBasePath('/blogs/')}>
+    <h1 class="sr-only">赵博洋的个人站</h1>
+    <BlogProfile />
+    <WritingHeatmap />
+    <ProgressStats />
+    <RecentWriting />
+    <RecentMedia />
+  </div>
+</BaseLayout>
+
+<script>
+  import { navigate } from 'astro:transitions/client'
+
+  const migrateListBookmark = () => {
+    const home = document.querySelector<HTMLElement>('[data-blog-home]')
+    const params = new URLSearchParams(location.search)
+    if (
+      home &&
+      !home.dataset.migrating &&
+      ['category', 'tag', 'page'].some((key) => params.has(key))
+    ) {
+      home.dataset.migrating = 'true'
+      void navigate(
+        `${home.dataset.blogHome}${location.search}${location.hash}`,
+        {
+          history: 'replace',
+        }
+      )
+    }
+  }
+  document.addEventListener('astro:page-load', migrateListBookmark)
+  migrateListBookmark()
+</script>
